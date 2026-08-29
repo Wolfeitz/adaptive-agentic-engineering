@@ -1,0 +1,5 @@
+.aae/**/*.local.md
+.aae/runtime/
+.aae/generated/local/
+.aae/state/local/
+*.local.md

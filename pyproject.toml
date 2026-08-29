@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaptive-agentic-engineering"
+version = "0.1.0"
+description = "Portable intent bootstrap for Adaptive Agentic Engineering"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+aae = "aae.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"aae.templates" = [
+  "AGENTS.md",
+  ".gitignore",
+  ".github/*",
+  ".github/**/*",
+  ".aae/*",
+  ".aae/**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+"aae.templates" = ["**/__pycache__/*", "**/*.pyc"]

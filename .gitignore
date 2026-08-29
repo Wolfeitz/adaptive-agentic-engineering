@@ -1,0 +1,12 @@
+.aae/**/*.local.md
+.aae/runtime/
+.aae/generated/local/
+.aae/state/local/
+*.local.md
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/
