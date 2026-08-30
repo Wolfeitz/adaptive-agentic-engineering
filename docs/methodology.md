@@ -28,4 +28,4 @@ AAE Markdown guides cooperative humans and agents. It is not access control. CI/
 
 ## Progress telemetry
 
-Long-running bounded work should expose concise, measurable state in substantive user updates: phase, completed/total comparable units where meaningful, current activity, remaining work, next milestone, and blockers. Counts are preferable to percentages; neither elapsed time nor uneven checklist items justify a completion estimate.
+Progress telemetry is a workflow preference, enabled in the starter by default and overridable through `workflow.local.md`. When enabled, long-running bounded work should expose concise, measurable state in substantive user updates: phase, completed/total comparable units where meaningful, current activity, remaining work, next milestone, and blockers. Counts are preferable to percentages; neither elapsed time nor uneven checklist items justify a completion estimate.
