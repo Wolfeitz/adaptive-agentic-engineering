@@ -11,7 +11,7 @@ Task states: `proposed`, `ready`, `in_progress`, `blocked`, `implemented`, `veri
 - **Applicable constraints:** Identify relevant intent sources
 - **Acceptance criteria:**
   - [ ] The bounded outcome exists.
-  - [ ] Deterministic verification passes.
+  - [ ] Configured automated tests, resource-stability checks, and other deterministic verification pass, or justified alternative evidence is recorded.
   - [ ] Required review is complete.
 - **Verification:** Record exact commands and expected evidence.
 - **Evidence:** None yet.

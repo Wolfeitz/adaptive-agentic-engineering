@@ -56,6 +56,9 @@ class AaeCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             init_repository(root)
+            testing = (root / ".aae/intent/testing.md").read_text(encoding="utf-8")
+            self.assertIn("**Automated test creation:** on", testing)
+            self.assertTrue((root / ".aae/intent/testing.local.example.md").exists())
             self.assertEqual(validate_repository(root), 0)
 
 

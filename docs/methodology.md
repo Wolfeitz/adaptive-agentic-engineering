@@ -29,3 +29,9 @@ AAE Markdown guides cooperative humans and agents. It is not access control. CI/
 ## Progress telemetry
 
 Progress telemetry is a workflow preference, enabled in the starter by default and overridable through `workflow.local.md`. When enabled, long-running bounded work should expose concise, measurable state in substantive user updates: phase, completed/total comparable units where meaningful, current activity, remaining work, next milestone, and blockers. Counts are preferable to percentages; neither elapsed time nor uneven checklist items justify a completion estimate.
+
+## Testing and coverage
+
+Testing is a configurable project preference rather than a universal AAE mandate. The starter enables automated test creation, defect regression tests, and coverage reporting when supported; shared or local intent may disable or specialize each behavior. No numeric coverage threshold is invented by default. Task completion always requires verification evidence, even when automated testing is disabled or impractical.
+
+Testing should follow risk rather than line count. In addition to acceptance criteria and material failure paths, repeated, concurrent, batched, long-running, and resource-owning behavior should trigger consideration of bounded repeated-operation or soak verification. Memory, handles, subscriptions, timers, workers, sockets, caches, buffers, GPU resources, temporary files, cancellation, and cleanup paths are relevant. Coverage remains diagnostic and cannot substitute for stability or lifecycle evidence.

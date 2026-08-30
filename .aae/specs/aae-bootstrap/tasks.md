@@ -24,3 +24,10 @@
 - **Requirements:** REQ-006
 - **Completion contract:** Unit tests pass, example validates, package installs, and a generated bootstrap compiles successfully.
 - **Evidence:** Standard-library unit suite passes; repository and example validation pass; built-wheel installation, initialization, compilation, and validation smoke test pass.
+
+## T-005 — Add configurable testing intent
+
+- **Status:** verified
+- **Requirements:** REQ-007
+- **Completion contract:** New projects receive testing defaults and a local override example; adapters honor the effective policy; leak-prone behavior triggers resource-lifecycle consideration; no numeric coverage threshold is invented; bootstrap tests and validation pass.
+- **Evidence:** Testing intent and local example are packaged; task and Codex adapters reference the policy; standard-library unit suite and repository validation pass.

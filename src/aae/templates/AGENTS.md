@@ -15,5 +15,6 @@ Before consequential work:
 9. Give independent challengers/reviewers fresh bounded evidence rather than the author's full conversational framing.
 10. Persist durable facts, decisions, constraints, evidence, and lessons into authoritative artifacts, then compact or discard stale working context.
 11. Honor the effective shared-plus-local workflow setting for progress telemetry. Unless disabled or specialized there, bounded long-running work should report compact phase, completed/total comparable units when meaningful, current activity, remaining work, next milestone, and blockers—without inventing percentages from elapsed time or uneven checklist items.
+12. Honor the effective testing settings. When enabled, create tests with changed behavior and regression tests for defects when practical. For resource-owning, repeated, concurrent, batched, or long-running code, evaluate repeated-operation or soak verification for leaks and incomplete cleanup. Treat coverage as diagnostic unless project intent defines a threshold. Record alternative evidence when tests are disabled or impractical.
 
 The active tool may generate additional runtime instructions, but generated artifacts must preserve provenance to human-readable intent.

@@ -6,3 +6,4 @@
 - **REQ-004:** Produce a deterministic manifest and bounded semantic compiler request without binding to one model provider.
 - **REQ-005:** Supply Codex, Copilot, HVE Core, specification, context-hygiene, routing, and observability guidance.
 - **REQ-006:** Validate core repository hygiene in local and CI execution.
+- **REQ-007:** Seed configurable testing preferences that default automated and regression testing on, avoid invented coverage thresholds, and trigger resource-lifecycle verification when risk warrants it.
