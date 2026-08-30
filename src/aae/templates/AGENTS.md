@@ -14,6 +14,6 @@ Before consequential work:
 8. Use the smallest workflow that owns the next action. Research only demonstrated evidence gaps.
 9. Give independent challengers/reviewers fresh bounded evidence rather than the author's full conversational framing.
 10. Persist durable facts, decisions, constraints, evidence, and lessons into authoritative artifacts, then compact or discard stale working context.
-11. For bounded long-running work, keep substantive progress updates compact: report phase, completed/total comparable units when meaningful, current activity, remaining work, next milestone, and blockers. Do not invent percentages from elapsed time or uneven checklist items.
+11. Honor the effective shared-plus-local workflow setting for progress telemetry. Unless disabled or specialized there, bounded long-running work should report compact phase, completed/total comparable units when meaningful, current activity, remaining work, next milestone, and blockers—without inventing percentages from elapsed time or uneven checklist items.
 
 The active tool may generate additional runtime instructions, but generated artifacts must preserve provenance to human-readable intent.
