@@ -25,3 +25,7 @@ Any Markdown placed in `.aae/intent/` is potentially meaningful. Seed documents 
 ## Guidance and enforcement
 
 AAE Markdown guides cooperative humans and agents. It is not access control. CI/CD, repository governance, model gateways, IAM, network policy, and platform administration provide enforcement.
+
+## Progress telemetry
+
+Long-running bounded work should expose concise, measurable state in substantive user updates: phase, completed/total comparable units where meaningful, current activity, remaining work, next milestone, and blockers. Counts are preferable to percentages; neither elapsed time nor uneven checklist items justify a completion estimate.
