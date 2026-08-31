@@ -59,6 +59,9 @@ class AaeCliTests(unittest.TestCase):
             testing = (root / ".aae/intent/testing.md").read_text(encoding="utf-8")
             self.assertIn("**Automated test creation:** on", testing)
             self.assertTrue((root / ".aae/intent/testing.local.example.md").exists())
+            self.assertTrue((root / ".aae/intent/environment.local.example.md").exists())
+            sources = discover_intent(root)
+            self.assertFalse(any(str(item["path"]).endswith(".local.example.md") for item in sources))
             self.assertEqual(validate_repository(root), 0)
 
 

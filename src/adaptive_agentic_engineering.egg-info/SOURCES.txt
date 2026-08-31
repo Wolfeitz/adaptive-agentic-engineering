@@ -10,6 +10,7 @@ src/aae/templates/.aae/README.md
 src/aae/templates/.aae/generated/README.md
 src/aae/templates/.aae/intent/architecture.md
 src/aae/templates/.aae/intent/engineering-standards.md
+src/aae/templates/.aae/intent/environment.local.example.md
 src/aae/templates/.aae/intent/environment.md
 src/aae/templates/.aae/intent/models-and-compute.local.example.md
 src/aae/templates/.aae/intent/models-and-compute.md

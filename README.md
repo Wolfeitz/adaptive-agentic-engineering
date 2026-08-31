@@ -53,9 +53,9 @@ The seeded files are starting points, not a whitelist. Any Markdown added under 
 
 ## Shared and local intent
 
-`environment.md` is committed. `environment.local.md` is ignored and is interpreted after its shared counterpart. Local overlays specialize shared defaults for a workstation or execution environment. Markdown is guidance, not a security boundary; enforcement belongs to CI/CD, repository governance, model gateways, IAM, and platform administrators.
+`environment.md` is committed. A tracked `environment.local.example.md` demonstrates the override mechanism; copy it to the ignored `environment.local.md`, which is interpreted after its shared counterpart. The bootstrap also includes tracked local examples for models and compute, workflow, and testing. Local overlays specialize shared defaults for a workstation or execution environment. Markdown is guidance, not a security boundary; enforcement belongs to CI/CD, repository governance, model gateways, IAM, and platform administrators.
 
-Never put credentials or secrets in a `.local.md` file. Reference a credential-store entry or environment-variable name instead.
+Never put credentials or secrets in a `.local.md` file. Reference a credential-store entry or environment-variable name instead. Any shared intent source may have a matching local overlay even when no dedicated example is provided.
 
 ## Commands
 
