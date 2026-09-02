@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "starter",
+      "scope": "project",
+      "adapter": "aae-json",
+      "path": "src/aae/templates/.aae/skills"
+    }
+  ]
+}

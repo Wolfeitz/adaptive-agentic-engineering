@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "review-lesson-extractor",
+  "description": "Extract durable, scoped lessons and repeated-procedure candidates from completed work without silently changing authority.",
+  "capabilities": ["lesson-extraction", "lesson-classification", "skill-candidate-detection", "determinism-promotion"],
+  "when_to_use": ["completed review", "repeated defect", "repeated procedure", "workflow retrospective"],
+  "procedure": "SKILL.md"
+}

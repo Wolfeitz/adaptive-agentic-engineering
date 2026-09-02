@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "repo-recon",
+  "description": "Build bounded repository context by locating authority, architecture, environment, ownership, precedents, and current state before consequential work.",
+  "capabilities": ["project-discovery", "repository-reconnaissance", "authority-discovery", "environment-discovery", "ownership-mapping"],
+  "when_to_use": ["unfamiliar repository", "existing project", "architecture change", "runtime change"],
+  "requires_tools": ["filesystem-search", "version-control-read"],
+  "procedure": "SKILL.md"
+}

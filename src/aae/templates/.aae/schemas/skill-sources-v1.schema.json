@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/skill-sources-v1.schema.json",
+  "title": "AAE Skill Sources v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scope", "adapter", "path"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+          "scope": {"enum": ["enterprise", "project", "local"]},
+          "adapter": {"enum": ["aae-json", "skill-md", "registry-json"]},
+          "path": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

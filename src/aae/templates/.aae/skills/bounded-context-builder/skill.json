@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "bounded-context-builder",
+  "description": "Construct a minimal provenance-aware context packet for one decision, execution task, challenge, or independent review.",
+  "capabilities": ["context-building", "context-provenance", "context-reconstruction", "review-context-building"],
+  "when_to_use": ["new task packet", "context reconstruction", "independent review", "large conversation"],
+  "procedure": "SKILL.md"
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/invocation-record-v1.schema.json",
+  "title": "AAE Skill Invocation Record v1",
+  "type": "object",
+  "required": ["schema_version", "invocation_id", "task", "candidates", "safety", "status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "invocation_id": {"type": "string"},
+    "task": {"type": "object"},
+    "candidates": {"type": "array"},
+    "selected_skill": {"type": ["object", "null"]},
+    "safety": {
+      "type": "object",
+      "required": ["decision", "checks", "rejection_reasons"],
+      "properties": {
+        "decision": {"enum": ["allowed", "denied"]},
+        "checks": {"type": "array"},
+        "rejection_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "status": {"type": "string"}
+  }
+}

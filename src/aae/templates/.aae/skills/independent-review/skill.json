@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "name": "independent-review",
+  "description": "Challenge correctness, architecture, security, performance, and specification compliance from fresh bounded evidence.",
+  "capabilities": ["independent-review", "code-review", "architecture-review", "security-review", "specification-compliance-review"],
+  "when_to_use": ["consequential change", "required review", "security boundary", "architecture boundary", "release candidate"],
+  "requires_tools": ["filesystem-read"],
+  "independence_required": true,
+  "procedure": "SKILL.md"
+}

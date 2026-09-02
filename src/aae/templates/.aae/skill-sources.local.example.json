@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "installed-skills",
+      "scope": "local",
+      "adapter": "skill-md",
+      "path": "/replace/with/installed/skills"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/skill-manifest-v1.schema.json",
+  "title": "AAE Skill Advertisement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "description", "procedure"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "version": {"type": "string", "default": "0.1.0"},
+    "description": {"type": "string", "minLength": 1},
+    "when_to_use": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "capabilities": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "requires_tools": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "destructive": {"type": "boolean", "default": false},
+    "independence_required": {"type": "boolean", "default": false},
+    "procedure": {"type": "string", "minLength": 1}
+  }
+}

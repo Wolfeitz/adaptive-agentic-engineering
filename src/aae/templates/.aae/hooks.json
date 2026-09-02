@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "diagnose-repeated-test-failure",
+      "enabled": false,
+      "on": "test-failed",
+      "request_skill": "project:runtime-diagnosis",
+      "task": "Diagnose the test failure from bounded event evidence"
+    },
+    {
+      "id": "verify-python-changes",
+      "enabled": false,
+      "on": "files-changed",
+      "paths": ["src/**/*.py", "tests/**/*.py"],
+      "run_check": ["python", "-m", "unittest", "discover", "-s", "tests"]
+    }
+  ]
+}

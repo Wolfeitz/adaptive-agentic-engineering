@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "runtime-diagnosis",
+  "description": "Establish runtime provenance, rank evidence-backed hypotheses, and run discriminating checks without confusing source edits with live state.",
+  "capabilities": ["runtime-provenance", "log-triage", "hypothesis-building", "discriminating-testing", "configuration-resolution"],
+  "when_to_use": ["runtime failure", "deployment mismatch", "configuration issue", "intermittent behavior", "service unhealthy"],
+  "requires_tools": ["runtime-read"],
+  "procedure": "SKILL.md"
+}

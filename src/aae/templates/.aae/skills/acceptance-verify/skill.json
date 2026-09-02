@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "acceptance-verify",
+  "description": "Verify a completion contract with deterministic, runtime, and independent evidence proportional to consequence.",
+  "capabilities": ["acceptance-verification", "evidence-grading", "regression-verification", "resource-lifecycle-verification"],
+  "when_to_use": ["task completion", "feature verification", "defect fix", "release evidence"],
+  "requires_tools": ["test-execution"],
+  "procedure": "SKILL.md"
+}
