@@ -10,8 +10,9 @@ TaskRequest
     -> bounded candidate discovery and deterministic selection
     -> policy-checked InvocationPlan
     -> digest-bound bounded evidence packet
-    -> ephemeral executor process
-    -> deterministic outcome recording
+    -> ephemeral executor process for semantic criteria only
+    -> deterministic-control criterion evaluation
+    -> deterministic combined pre-review outcome
     -> optional separate-process independent review
     -> canonical governed-run accounting
 ```
@@ -49,25 +50,41 @@ misrepresented as a provider identifier emitted by the CLI process.
 
 For independent review, AAE creates another invocation plan and launches a
 second ephemeral process. The reviewer receives a neutral packet containing
-only the original task, acceptance criteria, and listed source evidence. The
-executor result is deliberately withheld so the reviewer reconstructs the
-assessment instead of inheriting its framing. Distinct invocation, execution,
-and Codex thread identities are recorded.
+the original task, semantic acceptance criteria, listed source evidence, the
+criterion-level semantic result, and any canonical deterministic runtime proof.
+It does not receive the executor's chain of rationale or conversation history.
+Distinct invocation, execution, and Codex thread identities are recorded.
 
-## Deterministic outcome contract
+## Criterion authority and deterministic outcome contract
 
-The executor reports findings and one status for every required acceptance
-criterion, exactly once and in packet order. AAE derives the authoritative
-outcome from those statuses:
+Every governed criterion has a content-derived identity, an authority, and an
+evaluator. `semantic-executor` criteria are the only criteria placed in the
+executor packet. `deterministic-control` criteria are withheld from the model
+and evaluated from the post-execution runtime proof by AAE. The InvocationPlan
+binds the complete assignment, while the reviewer plan binds only the semantic
+projection. Governed-run schema version 2 records this split; existing schema
+version 1 records remain valid historical accounting and are not rewritten.
+Configuring the enforced filesystem boundary also installs its matching
+deterministic-control criterion automatically, so omission of the CLI flag
+cannot disable a configured security boundary.
+
+The executor reports findings and one status for every assigned semantic
+criterion, exactly once and in packet order. AAE records each criterion result
+with its evaluator, supporting evidence digest, and responsible invocation or
+control identity. It then derives the combined pre-review outcome across all
+semantic and deterministic results:
 
 - any `failed` criterion produces `failed`;
 - otherwise, any `blocked` criterion produces `blocked`;
 - otherwise, all criteria are `passed` and the outcome is `succeeded`.
 
 The structured-output `outcome` field remains for compatibility, but it is
-informational. AAE requires it to equal the derived outcome and rejects a
-contradiction as `invalid-output`. Criterion validation and evidence-reference
-validation remain fail-closed.
+informational about the semantic result only. AAE requires it to equal the
+semantic result derived from the executor's assigned criteria and rejects a
+contradiction as `invalid-output`. A missing deterministic proof blocks the
+combined outcome; a failed or inconsistent proof fails it. Independent review
+can launch only after the complete pre-review outcome succeeds. Criterion
+validation and evidence-reference validation remain fail-closed.
 
 ## Context bounds
 

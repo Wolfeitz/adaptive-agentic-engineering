@@ -186,6 +186,130 @@ def build_agent_skill_accounting(
                                         f"Governed run {path.name} {role} filesystem "
                                         "boundary proof does not reconcile"
                                     )
+                        criteria_expected = (
+                            role == "primary"
+                            and bool(task.get("criteria"))
+                            and value.get("execution_disposition") == "accepted"
+                            and (run.get("failure") or {}).get("phase")
+                            != "primary-outcome-recording"
+                        )
+                        if criteria_expected and not value.get("criterion_results"):
+                            errors.append(
+                                f"Governed run {path.name} is missing required "
+                                "criterion authority results"
+                            )
+                        if role == "primary" and value.get("criterion_results"):
+                            criteria = task.get("criteria")
+                            results = value.get("criterion_results")
+                            semantic_verification = {
+                                entry.get("criterion"): entry.get("status")
+                                for entry in (execution.get("result") or {}).get(
+                                    "verification", []
+                                )
+                                if isinstance(entry, dict)
+                            }
+                            criteria_values = (
+                                criteria if isinstance(criteria, list) else []
+                            )
+                            result_values = results if isinstance(results, list) else []
+                            reconciled = (
+                                isinstance(criteria, list)
+                                and isinstance(results, list)
+                                and len(criteria_values) == len(result_values)
+                            )
+                            if reconciled:
+                                for criterion, result in zip(
+                                    criteria_values, result_values, strict=True
+                                ):
+                                    if (
+                                        not isinstance(criterion, dict)
+                                        or not isinstance(result, dict)
+                                        or any(
+                                            result.get(field) != criterion.get(field)
+                                            for field in (
+                                                "criterion_id",
+                                                "statement",
+                                                "authority",
+                                                "evaluator",
+                                            )
+                                        )
+                                    ):
+                                        reconciled = False
+                                        break
+                                    if criterion.get("authority") == "semantic-executor":
+                                        identity = result.get("responsible_identity", {})
+                                        if (
+                                            semantic_verification.get(
+                                                criterion.get("statement")
+                                            )
+                                            != result.get("result")
+                                            or result.get("supporting_evidence_sha256")
+                                            != expected_execution_sha256
+                                            or identity.get("kind")
+                                            != "semantic-invocation"
+                                            or identity.get("invocation_id")
+                                            != value.get("invocation_id")
+                                            or identity.get("execution_id") != execution_id
+                                        ):
+                                            reconciled = False
+                                            break
+                                    elif criterion.get("authority") == "deterministic-control":
+                                        identity = result.get("responsible_identity", {})
+                                        if isinstance(boundary, dict):
+                                            control_matches = (
+                                                result.get(
+                                                    "supporting_evidence_sha256"
+                                                )
+                                                == boundary.get("proof_sha256")
+                                                and result.get("result")
+                                                == (
+                                                    "passed"
+                                                    if boundary.get("status") == "passed"
+                                                    else "failed"
+                                                )
+                                                and identity.get("execution_id")
+                                                == execution_id
+                                            )
+                                        else:
+                                            control_matches = (
+                                                result.get("result") == "blocked"
+                                                and result.get(
+                                                    "supporting_evidence_sha256"
+                                                )
+                                                is None
+                                                and identity.get("execution_id") is None
+                                            )
+                                        if (
+                                            not control_matches
+                                            or identity.get("kind")
+                                            != "deterministic-control"
+                                        ):
+                                            reconciled = False
+                                            break
+                                    else:
+                                        reconciled = False
+                                        break
+                            if not reconciled:
+                                errors.append(
+                                    f"Governed run {path.name} criterion authority "
+                                    "results do not reconcile"
+                                )
+                            else:
+                                statuses = [
+                                    result.get("result") for result in result_values
+                                ]
+                                expected_pre_review = (
+                                    "failed"
+                                    if "failed" in statuses
+                                    else "blocked"
+                                    if "blocked" in statuses
+                                    else "succeeded"
+                                )
+                                if value.get("pre_review_outcome") != expected_pre_review:
+                                    errors.append(
+                                        f"Governed run {path.name} pre-review outcome "
+                                        "does not reconcile with criterion results"
+                                    )
             invocation_id = value.get("invocation_id")
             if isinstance(invocation_id, str):
                 invocation_path = (
@@ -222,6 +346,25 @@ def build_agent_skill_accounting(
                                 f"Governed run {path.name} {role} invocation "
                                 "record does not reconcile"
                             )
+                        criteria = task.get("criteria")
+                        if isinstance(criteria, list) and criteria:
+                            expected_criteria = (
+                                criteria
+                                if role == "primary"
+                                else [
+                                    criterion
+                                    for criterion in criteria
+                                    if criterion.get("authority")
+                                    == "semantic-executor"
+                                ]
+                            )
+                            if invocation.get("invocation_plan", {}).get(
+                                "binding", {}
+                            ).get("criteria") != expected_criteria:
+                                errors.append(
+                                    f"Governed run {path.name} {role} invocation "
+                                    "criterion authority binding does not reconcile"
+                                )
                 else:
                     warnings.append(
                         f"Governed run {path.name} {role} runtime invocation "
@@ -251,27 +394,66 @@ def build_agent_skill_accounting(
                                 f"Governed run {path.name} {role} context "
                                 "packet does not reconcile"
                             )
-                        if role == "review" and isinstance(
-                            primary.get("filesystem_boundary"), dict
-                        ):
-                            proof_items = [
+                        if role == "review" and run.get("schema_version") == 2:
+                            primary_boundary = primary.get("filesystem_boundary")
+                            if isinstance(primary_boundary, dict):
+                                proof_items = [
+                                    item
+                                    for item in packet.get("items", [])
+                                    if isinstance(item, dict)
+                                    and item.get("path")
+                                    == "AAE_RUNTIME_BOUNDARY.json"
+                                ]
+                                expected_content = json.dumps(
+                                    primary_boundary,
+                                    sort_keys=True,
+                                    separators=(",", ":"),
+                                )
+                                if (
+                                    len(proof_items) != 1
+                                    or proof_items[0].get("content")
+                                    != expected_content
+                                ):
+                                    errors.append(
+                                        f"Governed run {path.name} reviewer packet "
+                                        "does not bind primary filesystem boundary "
+                                        "proof"
+                                    )
+                            semantic_items = [
                                 item
                                 for item in packet.get("items", [])
                                 if isinstance(item, dict)
-                                and item.get("path") == "AAE_RUNTIME_BOUNDARY.json"
+                                and item.get("path") == "AAE_SEMANTIC_RESULT.json"
                             ]
-                            expected_content = json.dumps(
-                                primary["filesystem_boundary"],
+                            expected_semantic = {
+                                "schema_version": 1,
+                                "execution_id": primary.get("execution_id"),
+                                "execution_sha256": primary.get("execution_sha256"),
+                                "authoritative_outcome": primary.get(
+                                    "authoritative_outcome"
+                                ),
+                                "criterion_results": [
+                                    result
+                                    for result in primary.get(
+                                        "criterion_results", []
+                                    )
+                                    if result.get("authority")
+                                    == "semantic-executor"
+                                ],
+                            }
+                            expected_semantic_content = json.dumps(
+                                expected_semantic,
                                 sort_keys=True,
                                 separators=(",", ":"),
                             )
                             if (
-                                len(proof_items) != 1
-                                or proof_items[0].get("content") != expected_content
+                                len(semantic_items) != 1
+                                or semantic_items[0].get("content")
+                                != expected_semantic_content
                             ):
                                 errors.append(
                                     f"Governed run {path.name} reviewer packet does "
-                                    "not bind primary filesystem boundary proof"
+                                    "not bind primary semantic criterion results"
                                 )
                 else:
                     warnings.append(
@@ -292,6 +474,9 @@ def build_agent_skill_accounting(
                 "invocation_plan_sha256": primary.get("invocation_plan_sha256"),
                 "context_packet_sha256": primary.get("context_packet_sha256"),
                 "context_packet": primary.get("context_packet"),
+                "criteria": task.get("criteria", []),
+                "criterion_results": primary.get("criterion_results", []),
+                "pre_review_outcome": primary.get("pre_review_outcome"),
                 "executor": {
                     "provider": primary.get("provider"),
                     "model": primary.get("model"),

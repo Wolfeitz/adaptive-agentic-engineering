@@ -898,6 +898,19 @@ def accounting_repository(root: Path, as_json: bool) -> int:
                 f"- {run['run_id']} [{run['status']}]: "
                 "no skill selected; executor not started"
             )
+        for criterion in run.get("criterion_results", []):
+            identity = criterion.get("responsible_identity", {})
+            responsible = (
+                identity.get("invocation_id")
+                or identity.get("control")
+                or "unavailable"
+            )
+            print(
+                f"  - {criterion['criterion_id']} "
+                f"[{criterion['authority']}/{criterion['evaluator']}]: "
+                f"{criterion['result']} via {responsible}; "
+                f"evidence={criterion.get('supporting_evidence_sha256')}"
+            )
     return 0
 
 
@@ -908,6 +921,7 @@ def governed_run_repository(
     skill: str | None,
     capabilities: Iterable[str],
     acceptance_criteria: Iterable[str],
+    deterministic_acceptance_criteria: Iterable[str],
     evidence_paths: Iterable[Path],
     approvals: Iterable[str],
     as_json: bool,
@@ -920,6 +934,7 @@ def governed_run_repository(
             explicit_skill=skill,
             capabilities=capabilities,
             acceptance_criteria=acceptance_criteria,
+            deterministic_acceptance_criteria=deterministic_acceptance_criteria,
             evidence_paths=evidence_paths,
             approvals=approvals,
         )
@@ -1142,6 +1157,7 @@ def parser() -> argparse.ArgumentParser:
     governed.add_argument("--skill")
     governed.add_argument("--capability", action="append", default=[])
     governed.add_argument("--acceptance", action="append", required=True)
+    governed.add_argument("--control-acceptance", action="append", default=[])
     governed.add_argument("--evidence", action="append", type=Path, required=True)
     governed.add_argument("--approval", action="append", default=[])
     governed.add_argument("--json", action="store_true")
@@ -1297,6 +1313,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.skill,
             arguments.capability,
             arguments.acceptance,
+            arguments.control_acceptance,
             arguments.evidence,
             arguments.approval,
             arguments.json,

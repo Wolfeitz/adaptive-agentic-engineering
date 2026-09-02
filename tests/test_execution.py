@@ -14,7 +14,12 @@ from unittest.mock import patch
 from aae.accounting import build_agent_skill_accounting
 from aae.cli import accounting_repository, init_repository
 from aae.execution import (
+    DETERMINISTIC_CONTROL,
+    FILESYSTEM_BOUNDARY_CRITERION,
+    SEMANTIC_EXECUTOR,
+    _build_criterion_specs,
     _codex_result_schema,
+    _evaluate_pre_review_criteria,
     _validate_result_against_packet,
     build_context_packet,
     execute_governed_task,
@@ -76,6 +81,10 @@ result = {
         for criterion in packet[\"acceptance_criteria\"]
     ],
 }
+if role == \"executor\" and \"attempt deterministic criterion\" in packet[\"task\"]:
+    result[\"verification\"].append(
+        {\"criterion\": \"No protected scientific evidence is accessed or changed.\", \"status\": \"passed\", \"evidence_refs\": [\"evidence.txt\"]}
+    )
 output.write_text(json.dumps(result), encoding=\"utf-8\")
 print(json.dumps({\"type\": \"thread.started\", \"thread_id\": f\"thread-{os.urandom(8).hex()}\"}))
 print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12, \"output_tokens\": 4}}))
@@ -206,6 +215,9 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
                 explicit_skill="project:engineering-qualify",
                 capabilities=("engineering-qualification",),
                 acceptance_criteria=("Evidence is bounded.",),
+                deterministic_acceptance_criteria=(
+                    FILESYSTEM_BOUNDARY_CRITERION,
+                ),
                 evidence_paths=(evidence,),
             )
             self.assertEqual(run["status"], "succeeded")
@@ -216,8 +228,34 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
             proof = execution["filesystem_boundary"]
             self.assertTrue(all(proof["attestation"]["checks"].values()))
             self.assertEqual(proof["canaries"]["project_before_sha256"], proof["canaries"]["project_after_sha256"])
+            self.assertEqual(
+                execution["result"]["verification"],
+                [
+                    {
+                        "criterion": "Evidence is bounded.",
+                        "status": "passed",
+                        "evidence_refs": ["evidence.txt"],
+                    }
+                ],
+            )
+            self.assertEqual(run["primary"]["pre_review_outcome"], "succeeded")
+            self.assertEqual(
+                [result["authority"] for result in run["primary"]["criterion_results"]],
+                [SEMANTIC_EXECUTOR, DETERMINISTIC_CONTROL],
+            )
+            self.assertEqual(
+                [result["result"] for result in run["primary"]["criterion_results"]],
+                ["passed", "passed"],
+            )
             review_packet = json.loads(
                 (root / ".aae/runtime/context-packets" / f"{run['review']['context_packet_sha256']}.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                review_packet["acceptance_criteria"], ["Evidence is bounded."]
+            )
+            self.assertEqual(
+                [item["path"] for item in review_packet["items"][-2:]],
+                ["AAE_SEMANTIC_RESULT.json", "AAE_RUNTIME_BOUNDARY.json"],
             )
             self.assertEqual(review_packet["items"][-1]["path"], "AAE_RUNTIME_BOUNDARY.json")
 
@@ -250,7 +288,7 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
                     evidence_paths=(evidence,),
                 )
             self.assertEqual(run["status"], "failed")
-            self.assertEqual(run["failure"]["phase"], "primary-execution")
+            self.assertEqual(run["failure"]["phase"], "primary-governed-outcome")
             execution_path = (
                 root
                 / ".aae/runtime/executions"
@@ -262,7 +300,166 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
                 execution["filesystem_boundary"]["attestation_error"],
                 "attestation-count:0",
             )
-            self.assertEqual(execution["disposition"], "execution-failed")
+            self.assertEqual(execution["disposition"], "accepted")
+            self.assertEqual(
+                [result["result"] for result in run["primary"]["criterion_results"]],
+                ["passed", "failed"],
+            )
+            self.assertEqual(run["primary"]["pre_review_outcome"], "failed")
+            self.assertEqual(
+                run["task_request"]["criteria"][1]["statement"],
+                FILESYSTEM_BOUNDARY_CRITERION,
+            )
+            self.assertEqual(build_agent_skill_accounting(root)[1], [])
+
+    def test_unknown_deterministic_criterion_fails_before_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root, filesystem_boundary=True)
+            run = execute_governed_task(
+                root,
+                task_id="unsupported-control-v1",
+                task="Reject an unsupported deterministic evaluator claim.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                deterministic_acceptance_criteria=("All tests pass.",),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(
+                run["failure"]["phase"], "control-plane-prepublication"
+            )
+            self.assertIn(
+                "no evaluator for that statement", run["failure"]["message"]
+            )
+            self.assertFalse((root / "fake-codex-ran").exists())
+
+    def test_semantic_failure_and_deterministic_pass_prevent_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root, filesystem_boundary=True)
+            run = execute_governed_task(
+                root,
+                task_id="semantic-failure-control-pass-v1",
+                task="Exercise a failed criterion outcome.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                deterministic_acceptance_criteria=(
+                    FILESYSTEM_BOUNDARY_CRITERION,
+                ),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(run["failure"]["phase"], "primary-governed-outcome")
+            self.assertEqual(run["primary"]["pre_review_outcome"], "failed")
+            self.assertEqual(
+                [result["result"] for result in run["primary"]["criterion_results"]],
+                ["failed", "passed"],
+            )
+            self.assertIsNone(run["review"]["invocation_id"])
+            self.assertEqual(build_agent_skill_accounting(root)[1], [])
+
+    def test_missing_deterministic_proof_blocks_and_prevents_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root)
+            run = execute_governed_task(
+                root,
+                task_id="missing-control-proof-v1",
+                task="Exercise missing deterministic proof.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                deterministic_acceptance_criteria=(
+                    FILESYSTEM_BOUNDARY_CRITERION,
+                ),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(run["failure"]["phase"], "primary-governed-outcome")
+            self.assertEqual(run["primary"]["pre_review_outcome"], "blocked")
+            self.assertEqual(
+                [result["result"] for result in run["primary"]["criterion_results"]],
+                ["passed", "blocked"],
+            )
+            self.assertIsNone(run["review"]["invocation_id"])
+            self.assertEqual(build_agent_skill_accounting(root)[1], [])
+
+    def test_executor_cannot_report_deterministic_control_criterion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root, filesystem_boundary=True)
+            run = execute_governed_task(
+                root,
+                task_id="authority-crossing-v1",
+                task="Exercise an attempt deterministic criterion response.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                deterministic_acceptance_criteria=(
+                    FILESYSTEM_BOUNDARY_CRITERION,
+                ),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(run["failure"]["phase"], "primary-invalid-output")
+            self.assertIn(
+                "exactly once",
+                run["primary"]["validation_failure"]["message"],
+            )
+            self.assertIsNone(run["review"]["invocation_id"])
+
+    def test_control_evaluator_cannot_supply_semantic_result(self) -> None:
+        specs = _build_criterion_specs(
+            ("Evidence is bounded.",),
+            (FILESYSTEM_BOUNDARY_CRITERION,),
+        )
+        with self.assertRaisesRegex(
+            ValueError, "semantic executor did not evaluate its assigned criterion"
+        ):
+            _evaluate_pre_review_criteria(
+                specs,
+                semantic_result={"verification": []},
+                invocation_id="invocation-fixture",
+                execution_id="execution-fixture",
+                execution_sha256="0" * 64,
+                boundary_proof={"status": "passed", "proof_sha256": "1" * 64},
+                invocation_plan_sha256="2" * 64,
+                context_packet_sha256="3" * 64,
+                project_root=Path("/tmp/project-fixture"),
+                boundary_identity={"version": "fixture"},
+            )
+
+    def test_invalid_deterministic_proof_fails_combined_outcome(self) -> None:
+        specs = _build_criterion_specs(
+            ("Evidence is bounded.",),
+            (FILESYSTEM_BOUNDARY_CRITERION,),
+        )
+        results, outcome = _evaluate_pre_review_criteria(
+            specs,
+            semantic_result={
+                "verification": [
+                    {"criterion": "Evidence is bounded.", "status": "passed"}
+                ]
+            },
+            invocation_id="invocation-fixture",
+            execution_id="execution-fixture",
+            execution_sha256="0" * 64,
+            boundary_proof={"status": "failed", "proof_sha256": "1" * 64},
+            invocation_plan_sha256="2" * 64,
+            context_packet_sha256="3" * 64,
+            project_root=Path("/tmp/project-fixture"),
+            boundary_identity={"version": "fixture"},
+        )
+
+        self.assertEqual(outcome, "failed")
+        self.assertEqual([result["result"] for result in results], ["passed", "failed"])
 
     def test_real_subprocess_path_records_separate_review_and_accounting(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -292,6 +489,13 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
             self.assertEqual(
                 accounting["runtime_evidence"]["governed_runs"][0]["run_id"],
                 run["run_id"],
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(accounting_repository(root, False), 0)
+            self.assertIn(
+                "semantic-executor/codex-cli-executor]: passed via",
+                output.getvalue(),
             )
             review_packet_path = root / ".aae/runtime/context-packets" / (
                 run["review"]["context_packet_sha256"] + ".json"

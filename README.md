@@ -110,6 +110,11 @@ is noninteractive `codex exec`; projects must explicitly configure its command,
 model, policy authorization, packet limits, and review behavior. See
 [docs/governed-execution.md](docs/governed-execution.md).
 
+Governed acceptance criteria have explicit evaluator authority. `--acceptance`
+assigns a criterion to the semantic executor; `--control-acceptance` assigns a
+runtime-boundary criterion to deterministic AAE control. The reviewer launches
+only after their combined pre-review outcome succeeds.
+
 Model profiles are deliberately local configuration. Copy
 `.aae/model-profiles.local.example.json` to the ignored
 `.aae/model-profiles.json`, bind it to real approved runtimes, and use

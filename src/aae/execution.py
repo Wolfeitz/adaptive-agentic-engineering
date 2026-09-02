@@ -53,6 +53,11 @@ REVIEW_FIELDS = {"required", "skill", "executor"}
 LIMIT_FIELDS = {"max_items", "max_files", "max_bytes", "max_estimated_tokens"}
 EVIDENCE_PATH_FIELDS = {"allowed_prefixes", "denied_prefixes"}
 BOUNDARY_FIELDS = {"version", "mode", "launcher", "launcher_sha256"}
+SEMANTIC_EXECUTOR = "semantic-executor"
+DETERMINISTIC_CONTROL = "deterministic-control"
+FILESYSTEM_BOUNDARY_CRITERION = (
+    "No protected scientific evidence is accessed or changed."
+)
 
 CODEX_RESULT_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -138,6 +143,133 @@ def _canonical_bytes(value: object) -> bytes:
 
 def _digest(value: object) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _build_criterion_specs(
+    semantic: Iterable[str], deterministic: Iterable[str]
+) -> list[dict[str, str]]:
+    specs: list[dict[str, str]] = []
+    for authority, evaluator, values in (
+        (SEMANTIC_EXECUTOR, "codex-cli-executor", semantic),
+        (DETERMINISTIC_CONTROL, BOUNDARY_VERSION, deterministic),
+    ):
+        for value in values:
+            statement = value.strip()
+            if not statement:
+                continue
+            if authority == DETERMINISTIC_CONTROL and statement != (
+                FILESYSTEM_BOUNDARY_CRITERION
+            ):
+                raise ValueError(
+                    "unsupported deterministic-control criterion; "
+                    "AAE has no evaluator for that statement"
+                )
+            body = {"statement": statement, "authority": authority, "evaluator": evaluator}
+            specs.append({**body, "criterion_id": _digest(body)})
+    statements = [spec["statement"] for spec in specs]
+    if len(statements) != len(set(statements)):
+        raise ValueError("governed acceptance criterion statements must be unique")
+    if not any(spec["authority"] == SEMANTIC_EXECUTOR for spec in specs):
+        raise ValueError("governed execution requires at least one semantic criterion")
+    return specs
+
+
+def _criterion_outcome(results: Iterable[dict[str, Any]]) -> str:
+    statuses = [str(result["result"]) for result in results]
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "blocked" for status in statuses):
+        return "blocked"
+    return "succeeded"
+
+
+def _evaluate_pre_review_criteria(
+    specs: list[dict[str, str]],
+    *,
+    semantic_result: dict[str, Any],
+    invocation_id: str,
+    execution_id: str,
+    execution_sha256: str,
+    boundary_proof: object,
+    invocation_plan_sha256: str,
+    context_packet_sha256: str,
+    project_root: Path,
+    boundary_identity: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], str]:
+    semantic_entries = {
+        str(entry["criterion"]): entry for entry in semantic_result["verification"]
+    }
+    results: list[dict[str, Any]] = []
+    for spec in specs:
+        authority = spec["authority"]
+        identity: dict[str, Any]
+        if authority == SEMANTIC_EXECUTOR:
+            entry = semantic_entries.get(spec["statement"])
+            if entry is None:
+                raise ValueError("semantic executor did not evaluate its assigned criterion")
+            results.append(
+                {
+                    **spec,
+                    "result": entry["status"],
+                    "supporting_evidence_sha256": execution_sha256,
+                    "responsible_identity": {
+                        "kind": "semantic-invocation",
+                        "invocation_id": invocation_id,
+                        "execution_id": execution_id,
+                    },
+                }
+            )
+            continue
+        if authority != DETERMINISTIC_CONTROL:
+            raise ValueError(f"unsupported criterion authority: {authority}")
+        if not isinstance(boundary_proof, dict):
+            status = "blocked"
+            evidence_sha256 = None
+            identity = {"kind": "deterministic-control", "control": BOUNDARY_VERSION}
+        else:
+            root = project_root.resolve()
+            attestation = boundary_proof.get("attestation")
+            checks = (
+                attestation.get("checks", {}) if isinstance(attestation, dict) else {}
+            )
+            proof_valid = (
+                filesystem_boundary_proof_digest_is_valid(boundary_proof)
+                and boundary_identity is not None
+                and boundary_proof.get("invocation_plan_sha256")
+                == invocation_plan_sha256
+                and boundary_proof.get("context_packet_sha256")
+                == context_packet_sha256
+                and boundary_proof.get("execution_id") == execution_id
+                and boundary_proof.get("launcher") == boundary_identity
+                and boundary_proof.get("project_root") == str(root)
+                and boundary_proof.get("protected_paths")
+                == [str(root), str(root / ".armiosto")]
+                and isinstance(checks, dict)
+                and checks
+                and all(value is True for value in checks.values())
+            )
+            status = (
+                "passed"
+                if proof_valid and boundary_proof.get("status") == "passed"
+                else "failed"
+            )
+            evidence_sha256 = boundary_proof.get("proof_sha256")
+            identity = {
+                "kind": "deterministic-control",
+                "control": BOUNDARY_VERSION,
+                "execution_id": boundary_proof.get("execution_id"),
+            }
+        results.append(
+            {
+                **spec,
+                "result": status,
+                "supporting_evidence_sha256": evidence_sha256,
+                "responsible_identity": identity,
+            }
+        )
+    if len(results) != len(specs):
+        raise ValueError("criterion evaluators did not produce a complete result set")
+    return results, _criterion_outcome(results)
 
 
 def _file_sha256(path: Path) -> str:
@@ -1017,6 +1149,17 @@ def run_codex_cli(
         raise ValueError("executor identity does not match the authorized binding")
     if binding.get("filesystem_boundary") != filesystem_boundary:
         raise ValueError("filesystem boundary does not match the authorized binding")
+    bound_criteria = binding.get("criteria")
+    if not isinstance(bound_criteria, list):
+        raise ValueError("authorized invocation has no criterion authority binding")
+    semantic_projection = [
+        criterion.get("statement")
+        for criterion in bound_criteria
+        if isinstance(criterion, dict)
+        and criterion.get("authority") == SEMANTIC_EXECUTOR
+    ]
+    if packet.get("acceptance_criteria") != semantic_projection:
+        raise ValueError("executor packet does not match its semantic criterion authority")
     if invocation_record.get("context_evidence_sha256") != packet.get("packet_sha256"):
         raise ValueError("executor context packet does not match the authorized digest")
     if packet.get("packet_sha256") != _digest(
@@ -1138,9 +1281,16 @@ def run_codex_cli(
         authoritative_outcome: str | None = None
         validation_error: BaseException | None = None
         try:
-            if boundary_proof is not None and boundary_proof.get("status") != "passed":
-                raise RuntimeError("filesystem boundary validation failed")
-            if completed.returncode != 0 or raw_output is None:
+            boundary_failed_after_execution = (
+                boundary_proof is not None
+                and boundary_proof.get("status") != "passed"
+                and raw_output is not None
+            )
+            if (
+                raw_output is None
+                or completed.returncode != 0
+                and not boundary_failed_after_execution
+            ):
                 raise RuntimeError(
                     "Codex CLI execution failed: "
                     f"exit={completed.returncode}, stderr_sha256="
@@ -1253,6 +1403,7 @@ def _runtime_profile(
     *,
     executor_identity: dict[str, Any],
     filesystem_boundary: dict[str, Any] | None,
+    criteria: list[dict[str, str]],
     fresh_context: bool,
     packet: dict[str, Any],
     approvals: Iterable[str] = (),
@@ -1275,6 +1426,7 @@ def _runtime_profile(
         },
         "executor_identity": executor_identity,
         "filesystem_boundary": filesystem_boundary,
+        "criteria": criteria,
     }
 
 
@@ -1288,6 +1440,8 @@ def _failed_run_record(
     task: str,
     capabilities: tuple[str, ...],
     acceptance_criteria: tuple[str, ...],
+    criterion_specs: list[dict[str, str]] | None = None,
+    criterion_results: list[dict[str, Any]] | None = None,
     approvals: tuple[str, ...],
     phase: str,
     error: BaseException,
@@ -1390,6 +1544,10 @@ def _failed_run_record(
             else None
         ),
         "result": primary_execution.get("result") if primary_execution is not None else None,
+        "criterion_results": criterion_results or [],
+        "pre_review_outcome": (
+            _criterion_outcome(criterion_results) if criterion_results else None
+        ),
     }
     review: dict[str, Any] = {
         "required": bool(configuration["review"]["required"]),
@@ -1465,7 +1623,7 @@ def _failed_run_record(
         "result": review_execution.get("result") if review_execution else None,
     }
     record: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "task_request": {
             "task_id": task_id,
@@ -1474,6 +1632,7 @@ def _failed_run_record(
             "acceptance_criteria": [
                 value.strip() for value in acceptance_criteria if value.strip()
             ],
+            "criteria": criterion_specs or [],
             "approvals": sorted(set(approvals)),
         },
         "configuration": {
@@ -1517,14 +1676,29 @@ def _execute_governed_task(
     explicit_skill: str | None,
     capabilities: Iterable[str],
     acceptance_criteria: Iterable[str],
+    deterministic_acceptance_criteria: Iterable[str],
     evidence_paths: Iterable[Path],
     approvals: Iterable[str] = (),
 ) -> dict[str, Any]:
     capability_values = tuple(capabilities)
     acceptance_values = tuple(acceptance_criteria)
+    deterministic_values = tuple(deterministic_acceptance_criteria)
+    configuration = load_execution_configuration(root)
+    if (
+        configuration["filesystem_boundary"] is not None
+        and FILESYSTEM_BOUNDARY_CRITERION not in deterministic_values
+    ):
+        deterministic_values = (*deterministic_values, FILESYSTEM_BOUNDARY_CRITERION)
+    criterion_specs = _build_criterion_specs(acceptance_values, deterministic_values)
+    all_acceptance_values = tuple(spec["statement"] for spec in criterion_specs)
+    semantic_values = tuple(
+        spec["statement"]
+        for spec in criterion_specs
+        if spec["authority"] == SEMANTIC_EXECUTOR
+    )
+    acceptance_values = all_acceptance_values
     evidence_values = tuple(evidence_paths)
     approval_values = tuple(approvals)
-    configuration = load_execution_configuration(root)
     registry, registry_errors, registry_warnings = build_skill_registry(root)
     if registry_errors:
         raise ValueError("skill registry is invalid: " + "; ".join(registry_errors))
@@ -1533,7 +1707,7 @@ def _execute_governed_task(
         root,
         task_id=task_id,
         task=task,
-        acceptance_criteria=acceptance_values,
+        acceptance_criteria=semantic_values,
         evidence_paths=evidence_values,
         limits=limits,
         evidence_policy=configuration["evidence_paths"],
@@ -1563,6 +1737,7 @@ def _execute_governed_task(
             primary_executor,
             executor_identity=primary_executor_identity,
             filesystem_boundary=filesystem_boundary_identity,
+            criteria=criterion_specs,
             fresh_context=False,
             packet=primary_packet,
             approvals=approval_values,
@@ -1582,6 +1757,7 @@ def _execute_governed_task(
             task=task,
             capabilities=capability_values,
             acceptance_criteria=acceptance_values,
+            criterion_specs=criterion_specs,
             approvals=approval_values,
             phase="primary-policy",
             error=denial,
@@ -1625,6 +1801,7 @@ def _execute_governed_task(
             task=task,
             capabilities=capability_values,
             acceptance_criteria=acceptance_values,
+            criterion_specs=criterion_specs,
             approvals=approval_values,
             phase=(
                 "primary-invalid-output"
@@ -1660,6 +1837,7 @@ def _execute_governed_task(
             task=task,
             capabilities=capability_values,
             acceptance_criteria=acceptance_values,
+            criterion_specs=criterion_specs,
             approvals=approval_values,
             phase="primary-execution",
             error=execution_error,
@@ -1690,6 +1868,7 @@ def _execute_governed_task(
             task=task,
             capabilities=capability_values,
             acceptance_criteria=acceptance_values,
+            criterion_specs=criterion_specs,
             approvals=approval_values,
             phase="primary-outcome-recording",
             error=RuntimeError(error),
@@ -1697,7 +1876,21 @@ def _execute_governed_task(
             primary_record=primary_record,
             primary_execution=primary_execution,
         )
-    if primary_outcome != "succeeded":
+    criterion_results, pre_review_outcome = _evaluate_pre_review_criteria(
+        criterion_specs,
+        semantic_result=primary_result,
+        invocation_id=primary_record["invocation_id"],
+        execution_id=primary_execution["execution_id"],
+        execution_sha256=primary_execution["execution_sha256"],
+        boundary_proof=primary_execution.get("filesystem_boundary"),
+        invocation_plan_sha256=primary_record["invocation_plan"][
+            "invocation_plan_sha256"
+        ],
+        context_packet_sha256=primary_packet["packet_sha256"],
+        project_root=root,
+        boundary_identity=filesystem_boundary_identity,
+    )
+    if pre_review_outcome != "succeeded":
         return _failed_run_record(
             root,
             run_id=run_id,
@@ -1707,10 +1900,13 @@ def _execute_governed_task(
             task=task,
             capabilities=capability_values,
             acceptance_criteria=acceptance_values,
+            criterion_specs=criterion_specs,
+            criterion_results=criterion_results,
             approvals=approval_values,
             phase="primary-governed-outcome",
             error=RuntimeError(
-                f"deterministic primary outcome is {primary_outcome}; review not launched"
+                "combined deterministic pre-review outcome is "
+                f"{pre_review_outcome}; review not launched"
             ),
             primary_packet=primary_packet,
             primary_record=primary_record,
@@ -1721,13 +1917,14 @@ def _execute_governed_task(
     review_execution: dict[str, Any] | None = None
     if configuration["review"]["required"]:
         original_criteria = "\n".join(
-            f"- {criterion}" for criterion in primary_packet["acceptance_criteria"]
+            f"- {criterion}" for criterion in semantic_values
         )
         review_task = "\n".join(
             [
-                "Independently perform the original assessment from the task, "
-                "acceptance criteria, and bounded source evidence. The executor's "
-                "result is intentionally withheld so you cannot inherit its framing.",
+                "Independently assess the semantic criteria from the bounded source "
+                "evidence. A neutral criterion-level semantic result and the "
+                "deterministic runtime-boundary proof are supplied for reconciliation; "
+                "do not treat either as a substitute for source review.",
                 "",
                 "ORIGINAL TASK",
                 task,
@@ -1751,6 +1948,8 @@ def _execute_governed_task(
                 task=task,
                 capabilities=capability_values,
                 acceptance_criteria=acceptance_values,
+                criterion_specs=criterion_specs,
+                criterion_results=criterion_results,
                 approvals=approval_values,
                 phase="primary-runtime-boundary",
                 error=RuntimeError(
@@ -1761,6 +1960,26 @@ def _execute_governed_task(
                 primary_execution=primary_execution,
             )
         review_items = [dict(item) for item in primary_packet["items"]]
+        semantic_result_record = {
+            "schema_version": 1,
+            "execution_id": primary_execution["execution_id"],
+            "execution_sha256": primary_execution["execution_sha256"],
+            "authoritative_outcome": primary_outcome,
+            "criterion_results": [
+                result
+                for result in criterion_results
+                if result["authority"] == SEMANTIC_EXECUTOR
+            ],
+        }
+        semantic_result_bytes = _canonical_bytes(semantic_result_record)
+        review_items.append(
+            {
+                "path": "AAE_SEMANTIC_RESULT.json",
+                "bytes": len(semantic_result_bytes),
+                "sha256": hashlib.sha256(semantic_result_bytes).hexdigest(),
+                "content": semantic_result_bytes.decode("utf-8"),
+            }
+        )
         if isinstance(primary_boundary, dict):
             boundary_bytes = _canonical_bytes(primary_boundary)
             review_items.append(
@@ -1774,7 +1993,7 @@ def _execute_governed_task(
         review_packet = _finalize_context_packet(
             task_id=f"{task_id}:independent-review",
             task=review_task,
-            acceptance_criteria=primary_packet["acceptance_criteria"],
+            acceptance_criteria=semantic_values,
             items=review_items,
             limits=limits,
         )
@@ -1800,6 +2019,11 @@ def _execute_governed_task(
                 reviewer,
                 executor_identity=reviewer_identity,
                 filesystem_boundary=filesystem_boundary_identity,
+                criteria=[
+                    spec
+                    for spec in criterion_specs
+                    if spec["authority"] == SEMANTIC_EXECUTOR
+                ],
                 fresh_context=True,
                 packet=review_packet,
             ),
@@ -1822,6 +2046,8 @@ def _execute_governed_task(
                 task=task,
                 capabilities=capability_values,
                 acceptance_criteria=acceptance_values,
+                criterion_specs=criterion_specs,
+                criterion_results=criterion_results,
                 approvals=approval_values,
                 phase="review-policy",
                 error=denial,
@@ -1869,6 +2095,8 @@ def _execute_governed_task(
                 task=task,
                 capabilities=capability_values,
                 acceptance_criteria=acceptance_values,
+                criterion_specs=criterion_specs,
+                criterion_results=criterion_results,
                 approvals=approval_values,
                 phase=(
                     "review-invalid-output"
@@ -1906,6 +2134,8 @@ def _execute_governed_task(
                 task=task,
                 capabilities=capability_values,
                 acceptance_criteria=acceptance_values,
+                criterion_specs=criterion_specs,
+                criterion_results=criterion_results,
                 approvals=approval_values,
                 phase="review-execution",
                 error=review_error,
@@ -1944,6 +2174,8 @@ def _execute_governed_task(
                 task=task,
                 capabilities=capability_values,
                 acceptance_criteria=acceptance_values,
+                criterion_specs=criterion_specs,
+                criterion_results=criterion_results,
                 approvals=approval_values,
                 phase="review-thread-independence",
                 error=thread_failure,
@@ -1988,6 +2220,8 @@ def _execute_governed_task(
                 task=task,
                 capabilities=capability_values,
                 acceptance_criteria=acceptance_values,
+                criterion_specs=criterion_specs,
+                criterion_results=criterion_results,
                 approvals=approval_values,
                 phase="review-outcome-recording",
                 error=RuntimeError(error),
@@ -2001,9 +2235,9 @@ def _execute_governed_task(
         review_succeeded = True
         review_agreement = True
 
-    succeeded = primary_outcome == "succeeded" and review_succeeded
+    succeeded = pre_review_outcome == "succeeded" and review_succeeded
     run: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "task_request": {
             "task_id": task_id,
@@ -2012,6 +2246,7 @@ def _execute_governed_task(
             "acceptance_criteria": [
                 value.strip() for value in acceptance_values if value.strip()
             ],
+            "criteria": criterion_specs,
             "approvals": sorted(set(approval_values)),
         },
         "configuration": {
@@ -2059,6 +2294,8 @@ def _execute_governed_task(
             "usage": primary_execution["usage"],
             "execution_disposition": primary_execution["disposition"],
             "authoritative_outcome": primary_execution["authoritative_outcome"],
+            "criterion_results": criterion_results,
+            "pre_review_outcome": pre_review_outcome,
             "raw_output_sha256": primary_execution["raw_output_sha256"],
             "parsed_output_sha256": primary_execution["parsed_output_sha256"],
             "validation_failure": primary_execution["validation_failure"],
@@ -2130,11 +2367,13 @@ def execute_governed_task(
     capabilities: Iterable[str],
     acceptance_criteria: Iterable[str],
     evidence_paths: Iterable[Path],
+    deterministic_acceptance_criteria: Iterable[str] = (),
     approvals: Iterable[str] = (),
 ) -> dict[str, Any]:
     run_id = str(uuid.uuid4())
     capability_values = tuple(capabilities)
     acceptance_values = tuple(acceptance_criteria)
+    deterministic_values = tuple(deterministic_acceptance_criteria)
     evidence_values = tuple(evidence_paths)
     approval_values = tuple(approvals)
     try:
@@ -2146,6 +2385,7 @@ def execute_governed_task(
             explicit_skill=explicit_skill,
             capabilities=capability_values,
             acceptance_criteria=acceptance_values,
+            deterministic_acceptance_criteria=deterministic_values,
             evidence_paths=evidence_values,
             approvals=approval_values,
         )
@@ -2180,15 +2420,18 @@ def execute_governed_task(
                 "accounting_path": accounting_path.relative_to(root).as_posix(),
             }
         failure: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": run_id,
             "task_request": {
                 "task_id": task_id,
                 "task": task,
                 "requested_capabilities": sorted(set(capability_values)),
                 "acceptance_criteria": [
-                    value.strip() for value in acceptance_values if value.strip()
+                    value.strip()
+                    for value in (*acceptance_values, *deterministic_values)
+                    if value.strip()
                 ],
+                "criteria": [],
                 "approvals": sorted(set(approval_values)),
                 "evidence_paths": [str(path) for path in evidence_values],
             },
