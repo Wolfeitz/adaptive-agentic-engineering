@@ -5,9 +5,11 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import tempfile
 from typing import Any
 import unittest
+from unittest.mock import patch
 
 from aae.accounting import build_agent_skill_accounting
 from aae.cli import accounting_repository, init_repository
@@ -22,7 +24,9 @@ from aae.execution import (
 
 
 class GovernedExecutionTests(unittest.TestCase):
-    def _project(self, root: Path, *, denied: bool = False) -> Path:
+    def _project(
+        self, root: Path, *, denied: bool = False, filesystem_boundary: bool = False
+    ) -> Path:
         init_repository(root)
         evidence = root / "evidence.txt"
         evidence.write_text("measured engineering evidence\n", encoding="utf-8")
@@ -73,7 +77,7 @@ result = {
     ],
 }
 output.write_text(json.dumps(result), encoding=\"utf-8\")
-print(json.dumps({\"type\": \"thread.started\", \"thread_id\": f\"thread-{os.getpid()}\"}))
+print(json.dumps({\"type\": \"thread.started\", \"thread_id\": f\"thread-{os.urandom(8).hex()}\"}))
 print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12, \"output_tokens\": 4}}))
 """,
             encoding="utf-8",
@@ -173,10 +177,92 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
             },
             "accounting_directory": ".aae/state/governed-runs",
         }
+        if filesystem_boundary:
+            launcher_value = shutil.which("bwrap")
+            if launcher_value is None:
+                self.skipTest("bubblewrap is unavailable")
+            launcher = Path(launcher_value).resolve()
+            configuration["filesystem_boundary"] = {
+                "version": "aae_bwrap_project_root_read_isolated_v1",
+                "mode": "project-root-read-isolated",
+                "launcher": str(launcher),
+                "launcher_sha256": hashlib.sha256(launcher.read_bytes()).hexdigest(),
+            }
         (root / ".aae/execution.json").write_text(
             json.dumps(configuration), encoding="utf-8"
         )
         return evidence
+
+    def test_filesystem_boundary_hides_and_write_protects_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root, filesystem_boundary=True)
+            protected = root / "protected.txt"
+            protected.write_text("unchanged", encoding="utf-8")
+            run = execute_governed_task(
+                root,
+                task_id="boundary-fixture-v1",
+                task="Qualify the boundary fixture.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                evidence_paths=(evidence,),
+            )
+            self.assertEqual(run["status"], "succeeded")
+            self.assertEqual(protected.read_text(encoding="utf-8"), "unchanged")
+            execution = json.loads(
+                (root / ".aae/runtime/executions" / f"{run['primary']['execution_id']}.json").read_text(encoding="utf-8")
+            )
+            proof = execution["filesystem_boundary"]
+            self.assertTrue(all(proof["attestation"]["checks"].values()))
+            self.assertEqual(proof["canaries"]["project_before_sha256"], proof["canaries"]["project_after_sha256"])
+            review_packet = json.loads(
+                (root / ".aae/runtime/context-packets" / f"{run['review']['context_packet_sha256']}.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(review_packet["items"][-1]["path"], "AAE_RUNTIME_BOUNDARY.json")
+
+            boundary_path = (
+                root
+                / ".aae/runtime/filesystem-boundaries"
+                / f"{run['primary']['execution_id']}.json"
+            )
+            boundary = json.loads(boundary_path.read_text(encoding="utf-8"))
+            boundary["status"] = "failed"
+            boundary_path.write_text(json.dumps(boundary), encoding="utf-8")
+            _, accounting_errors, _ = build_agent_skill_accounting(root)
+            self.assertTrue(
+                any("boundary proof does not reconcile" in error for error in accounting_errors)
+            )
+
+    def test_missing_boundary_attestation_fails_and_preserves_telemetry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root, filesystem_boundary=True)
+            source = """import os, sys\nos.execv('/tmp/aae-codex-command', ['/tmp/aae-codex-command', *sys.argv[2:]])\n"""
+            with patch("aae.execution._boundary_helper_source", return_value=source):
+                run = execute_governed_task(
+                    root,
+                    task_id="missing-attestation-v1",
+                    task="Reject a missing boundary attestation.",
+                    explicit_skill="project:engineering-qualify",
+                    capabilities=("engineering-qualification",),
+                    acceptance_criteria=("Evidence is bounded.",),
+                    evidence_paths=(evidence,),
+                )
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(run["failure"]["phase"], "primary-execution")
+            execution_path = (
+                root
+                / ".aae/runtime/executions"
+                / f"{run['primary']['execution_id']}.json"
+            )
+            execution = json.loads(execution_path.read_text(encoding="utf-8"))
+            self.assertEqual(execution["filesystem_boundary"]["status"], "failed")
+            self.assertEqual(
+                execution["filesystem_boundary"]["attestation_error"],
+                "attestation-count:0",
+            )
+            self.assertEqual(execution["disposition"], "execution-failed")
 
     def test_real_subprocess_path_records_separate_review_and_accounting(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

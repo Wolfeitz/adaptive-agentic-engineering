@@ -11,6 +11,7 @@ from .execution import (
     EXECUTION_CONFIG,
     context_packet_digest_is_valid,
     execution_artifact_digest_is_valid,
+    filesystem_boundary_proof_digest_is_valid,
     governed_run_digest_is_valid,
     load_execution_configuration,
 )
@@ -145,11 +146,46 @@ def build_agent_skill_accounting(
                             or execution.get("result") != value.get("result")
                             or execution.get("changed_project_paths")
                             != value.get("changed_project_paths")
+                            or execution.get("filesystem_boundary")
+                            != value.get("filesystem_boundary")
                         ):
                             errors.append(
                                 f"Governed run {path.name} {role} execution "
                                 "artifact does not reconcile"
                             )
+                        boundary = execution.get("filesystem_boundary")
+                        if isinstance(boundary, dict):
+                            boundary_path = (
+                                root
+                                / ".aae/runtime/filesystem-boundaries"
+                                / f"{execution_id}.json"
+                            )
+                            try:
+                                stored_boundary = json.loads(
+                                    boundary_path.read_text(encoding="utf-8")
+                                )
+                            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                                errors.append(
+                                    f"Cannot read governed run {path.name} {role} "
+                                    f"filesystem boundary proof: {error}"
+                                )
+                            else:
+                                if (
+                                    not isinstance(stored_boundary, dict)
+                                    or not filesystem_boundary_proof_digest_is_valid(
+                                        stored_boundary
+                                    )
+                                    or stored_boundary != boundary
+                                    or stored_boundary.get("execution_id") != execution_id
+                                    or stored_boundary.get("context_packet_sha256")
+                                    != value.get("context_packet_sha256")
+                                    or stored_boundary.get("invocation_plan_sha256")
+                                    != value.get("invocation_plan_sha256")
+                                ):
+                                    errors.append(
+                                        f"Governed run {path.name} {role} filesystem "
+                                        "boundary proof does not reconcile"
+                                    )
             invocation_id = value.get("invocation_id")
             if isinstance(invocation_id, str):
                 invocation_path = (
@@ -215,6 +251,28 @@ def build_agent_skill_accounting(
                                 f"Governed run {path.name} {role} context "
                                 "packet does not reconcile"
                             )
+                        if role == "review" and isinstance(
+                            primary.get("filesystem_boundary"), dict
+                        ):
+                            proof_items = [
+                                item
+                                for item in packet.get("items", [])
+                                if isinstance(item, dict)
+                                and item.get("path") == "AAE_RUNTIME_BOUNDARY.json"
+                            ]
+                            expected_content = json.dumps(
+                                primary["filesystem_boundary"],
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                            if (
+                                len(proof_items) != 1
+                                or proof_items[0].get("content") != expected_content
+                            ):
+                                errors.append(
+                                    f"Governed run {path.name} reviewer packet does "
+                                    "not bind primary filesystem boundary proof"
+                                )
                 else:
                     warnings.append(
                         f"Governed run {path.name} {role} runtime context "

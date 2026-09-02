@@ -25,6 +25,8 @@ EXECUTION_CONFIG = Path(".aae/execution.json")
 LOCAL_EXECUTION_CONFIG = Path(".aae/execution.local.json")
 CONTEXT_PACKET_DIRECTORY = Path(".aae/runtime/context-packets")
 EXECUTION_DIRECTORY = Path(".aae/runtime/executions")
+FILESYSTEM_BOUNDARY_DIRECTORY = Path(".aae/runtime/filesystem-boundaries")
+BOUNDARY_VERSION = "aae_bwrap_project_root_read_isolated_v1"
 
 CONFIG_FIELDS = {
     "schema_version",
@@ -32,6 +34,7 @@ CONFIG_FIELDS = {
     "evidence_paths",
     "primary_executor",
     "review",
+    "filesystem_boundary",
     "accounting_directory",
 }
 EXECUTOR_FIELDS = {
@@ -49,6 +52,7 @@ EXECUTOR_FIELDS = {
 REVIEW_FIELDS = {"required", "skill", "executor"}
 LIMIT_FIELDS = {"max_items", "max_files", "max_bytes", "max_estimated_tokens"}
 EVIDENCE_PATH_FIELDS = {"allowed_prefixes", "denied_prefixes"}
+BOUNDARY_FIELDS = {"version", "mode", "launcher", "launcher_sha256"}
 
 CODEX_RESULT_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -178,6 +182,12 @@ def execution_artifact_digest_is_valid(record: dict[str, Any]) -> bool:
     )
 
 
+def filesystem_boundary_proof_digest_is_valid(record: dict[str, Any]) -> bool:
+    return record.get("proof_sha256") == _digest(
+        {key: value for key, value in record.items() if key != "proof_sha256"}
+    )
+
+
 class CodexExecutionRejected(ValueError):
     """A launched Codex process whose output failed deterministic AAE validation."""
 
@@ -233,6 +243,27 @@ def _merge_executor(
     return {**portable, **local}
 
 
+def _merge_boundary(portable: object, local: object) -> dict[str, Any] | None:
+    if portable is None:
+        if local is not None:
+            raise ValueError("local filesystem_boundary requires a portable policy")
+        return None
+    if not isinstance(portable, dict) or set(portable) != BOUNDARY_FIELDS:
+        raise ValueError(
+            f"filesystem_boundary must contain exactly {sorted(BOUNDARY_FIELDS)}"
+        )
+    if local is None:
+        return dict(portable)
+    if not isinstance(local, dict):
+        raise ValueError("local filesystem_boundary must be an object")
+    unknown = sorted(set(local) - {"launcher", "launcher_sha256"})
+    if unknown:
+        raise ValueError(
+            f"local filesystem_boundary has unsupported fields: {unknown}"
+        )
+    return {**portable, **local}
+
+
 def load_execution_configuration(
     root: Path, *, require_effective_executor: bool = True
 ) -> dict[str, Any]:
@@ -250,7 +281,10 @@ def load_execution_configuration(
     local_path = root / LOCAL_EXECUTION_CONFIG
     if local_path.exists():
         local = _read_json_object(local_path)
-        local_unknown = sorted(set(local) - {"schema_version", "primary_executor", "review"})
+        local_unknown = sorted(
+            set(local)
+            - {"schema_version", "primary_executor", "review", "filesystem_boundary"}
+        )
         if local_unknown:
             raise ValueError(f"local execution configuration has unknown fields: {local_unknown}")
         if local.get("schema_version") != 1:
@@ -304,6 +338,34 @@ def load_execution_configuration(
     effective_review = _merge_executor(
         review_executor, local_review.get("executor"), "local review.executor"
     )
+    boundary = _merge_boundary(
+        portable.get("filesystem_boundary"), local.get("filesystem_boundary")
+    )
+    if boundary is not None:
+        if boundary["version"] != BOUNDARY_VERSION:
+            raise ValueError(f"filesystem_boundary.version must be {BOUNDARY_VERSION}")
+        if boundary["mode"] != "project-root-read-isolated":
+            raise ValueError(
+                "filesystem_boundary.mode must be project-root-read-isolated"
+            )
+        launcher = boundary["launcher"]
+        if not isinstance(launcher, str) or not launcher.strip():
+            raise ValueError("filesystem_boundary.launcher must be non-empty text")
+        launcher_sha256 = boundary["launcher_sha256"]
+        if require_effective_executor:
+            if not isinstance(launcher_sha256, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", launcher_sha256
+            ):
+                raise ValueError(
+                    "filesystem_boundary.launcher_sha256 must bind the launcher"
+                )
+        elif launcher_sha256 is not None and (
+            not isinstance(launcher_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", launcher_sha256)
+        ):
+            raise ValueError(
+                "filesystem_boundary.launcher_sha256 must be null or a SHA-256 digest"
+            )
     for location, executor in (
         ("primary_executor", effective_primary),
         ("review.executor", effective_review),
@@ -366,6 +428,7 @@ def load_execution_configuration(
         **portable,
         "primary_executor": effective_primary,
         "review": {**review, "executor": effective_review},
+        "filesystem_boundary": boundary,
         "portable_config_sha256": _digest(portable),
     }
     effective["effective_config_sha256"] = _digest(effective)
@@ -429,6 +492,23 @@ def build_context_packet(
                 "content": content,
             }
         )
+    return _finalize_context_packet(
+        task_id=task_id,
+        task=task,
+        acceptance_criteria=acceptance_criteria,
+        items=items,
+        limits=limits,
+    )
+
+
+def _finalize_context_packet(
+    *,
+    task_id: str,
+    task: str,
+    acceptance_criteria: Iterable[str],
+    items: list[dict[str, Any]],
+    limits: dict[str, int],
+) -> dict[str, Any]:
     paths = [item["path"] for item in items]
     if len(paths) != len(set(paths)):
         raise ValueError("context packet evidence paths must be unique")
@@ -622,6 +702,250 @@ def resolve_executor_identity(executor: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def resolve_filesystem_boundary(boundary: dict[str, Any] | None) -> dict[str, Any] | None:
+    if boundary is None:
+        return None
+    launcher_value = shutil.which(str(boundary["launcher"]))
+    if launcher_value is None:
+        raise ValueError(
+            f"filesystem boundary launcher is unavailable: {boundary['launcher']}"
+        )
+    launcher = Path(launcher_value).resolve()
+    observed_sha256 = _file_sha256(launcher)
+    if observed_sha256 != boundary["launcher_sha256"]:
+        raise ValueError("filesystem boundary launcher does not match configured digest")
+    completed = subprocess.run(
+        [str(launcher), "--version"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_executor_environment(),
+    )
+    return {
+        "version": boundary["version"],
+        "mode": boundary["mode"],
+        "launcher": launcher.name,
+        "resolved_path": str(launcher),
+        "launcher_sha256": observed_sha256,
+        "launcher_version": completed.stdout.strip(),
+    }
+
+
+def _boundary_helper_source() -> str:
+    return """from __future__ import annotations
+import errno
+import json
+import os
+from pathlib import Path
+import sys
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+project = Path(config["project_root"])
+workspace = Path(config["workspace"])
+checks = {
+    "project_root_empty": project.is_dir() and list(project.iterdir()) == [],
+    "project_canary_hidden": not (project / config["project_canary_relative"]).exists(),
+    "host_tmp_canary_hidden": not Path(config["host_tmp_canary"]).exists(),
+    "protected_store_hidden": not (project / ".armiosto").exists(),
+}
+probe = project / ".aae-boundary-write-probe"
+write_errno = None
+try:
+    probe.write_text("forbidden", encoding="utf-8")
+except OSError as error:
+    write_errno = error.errno
+checks["project_root_write_denied"] = write_errno in {errno.EROFS, errno.EACCES, errno.EPERM}
+workspace_probe = workspace / "workspace-write-probe"
+workspace_probe.write_text("allowed", encoding="utf-8")
+checks["executor_workspace_writable"] = workspace_probe.read_text(encoding="utf-8") == "allowed"
+workspace_probe.unlink()
+attestation = {
+    "schema_version": 1,
+    "boundary_version": config["boundary_version"],
+    "nonce": config["nonce"],
+    "checks": checks,
+}
+print("AAE_RUNTIME_BOUNDARY " + json.dumps(attestation, sort_keys=True, separators=(",", ":")), flush=True)
+if not all(checks.values()):
+    raise SystemExit(125)
+os.execv(config["command"], [config["command"], *sys.argv[2:]])
+"""
+
+
+def _run_with_filesystem_boundary(
+    *,
+    root: Path,
+    workspace: Path,
+    argv: list[str],
+    prompt: str,
+    timeout: int,
+    environment: dict[str, str],
+    execution_id: str,
+    plan_sha256: str,
+    packet_sha256: str,
+    boundary_identity: dict[str, Any],
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+    root = root.resolve()
+    workspace = workspace.resolve()
+    nonce = uuid.uuid4().hex
+    project_canary_relative = (
+        FILESYSTEM_BOUNDARY_DIRECTORY / "canaries" / f"{execution_id}.json"
+    )
+    project_canary = root / project_canary_relative
+    project_canary_value = {
+        "schema_version": 1,
+        "execution_id": execution_id,
+        "nonce": nonce,
+    }
+    _write_canonical_exclusive(project_canary, project_canary_value)
+    project_canary_sha256 = _file_sha256(project_canary)
+    descriptor, host_tmp_name = tempfile.mkstemp(prefix="aae-boundary-host-canary-")
+    host_tmp_canary = Path(host_tmp_name)
+    os.write(descriptor, nonce.encode("ascii"))
+    os.fsync(descriptor)
+    os.close(descriptor)
+    host_tmp_sha256 = _file_sha256(host_tmp_canary)
+    helper_path = workspace / "boundary-helper.py"
+    helper_path.write_text(_boundary_helper_source(), encoding="utf-8")
+    helper_sha256 = _file_sha256(helper_path)
+    namespace_workspace = "/tmp/aae-workspace"
+    namespace_command = "/tmp/aae-codex-command"
+    namespace_config = f"{namespace_workspace}/boundary-config.json"
+    config = {
+        "boundary_version": BOUNDARY_VERSION,
+        "nonce": nonce,
+        "project_root": str(root),
+        "workspace": namespace_workspace,
+        "project_canary_relative": project_canary_relative.as_posix(),
+        "host_tmp_canary": str(host_tmp_canary),
+        "command": namespace_command,
+    }
+    (workspace / "boundary-config.json").write_bytes(_canonical_bytes(config) + b"\n")
+    translated_argv = [
+        namespace_command if value == argv[0] else
+        value.replace(str(workspace), namespace_workspace)
+        for value in argv
+    ]
+    bwrap_argv = [
+        boundary_identity["resolved_path"],
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-all",
+        "--share-net",
+        "--ro-bind", "/", "/",
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        "--tmpfs", "/run",
+        "--bind", str(workspace), namespace_workspace,
+        "--ro-bind", argv[0], namespace_command,
+        "--tmpfs", str(root),
+        "--remount-ro", str(root),
+        "--chdir", namespace_workspace,
+        "/usr/bin/python3",
+        f"{namespace_workspace}/boundary-helper.py",
+        namespace_config,
+        *translated_argv[1:],
+    ]
+    started = time.monotonic_ns()
+    timed_out = False
+    try:
+        try:
+            completed = subprocess.run(
+                bwrap_argv,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                cwd=workspace,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired as error:
+            timed_out = True
+            stdout = error.stdout.decode() if isinstance(error.stdout, bytes) else error.stdout
+            stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr
+            completed = subprocess.CompletedProcess(
+                bwrap_argv,
+                124,
+                stdout or "",
+                stderr or "filesystem boundary execution timed out",
+            )
+    finally:
+        duration_ns = time.monotonic_ns() - started
+    prefix = "AAE_RUNTIME_BOUNDARY "
+    attestation_lines = [
+        line[len(prefix):]
+        for line in completed.stdout.splitlines()
+        if line.startswith(prefix)
+    ]
+    attestation: object | None = None
+    attestation_error: str | None = None
+    if len(attestation_lines) == 1:
+        try:
+            attestation = json.loads(attestation_lines[0])
+        except json.JSONDecodeError as error:
+            attestation_error = f"invalid-json:{error.msg}"
+    else:
+        attestation_error = f"attestation-count:{len(attestation_lines)}"
+    expected_checks = {
+        "project_root_empty": True,
+        "project_canary_hidden": True,
+        "host_tmp_canary_hidden": True,
+        "protected_store_hidden": True,
+        "project_root_write_denied": True,
+        "executor_workspace_writable": True,
+    }
+    attestation_valid = (
+        isinstance(attestation, dict)
+        and attestation.get("boundary_version") == BOUNDARY_VERSION
+        and attestation.get("nonce") == nonce
+        and attestation.get("checks") == expected_checks
+    )
+    project_post_sha256 = _file_sha256(project_canary) if project_canary.is_file() else None
+    host_tmp_post_sha256 = (
+        _file_sha256(host_tmp_canary) if host_tmp_canary.is_file() else None
+    )
+    canaries_valid = (
+        project_post_sha256 == project_canary_sha256
+        and host_tmp_post_sha256 == host_tmp_sha256
+    )
+    host_tmp_canary.unlink(missing_ok=True)
+    passed = attestation_valid and canaries_valid and not timed_out
+    proof: dict[str, Any] = {
+        "schema_version": 1,
+        "boundary_version": BOUNDARY_VERSION,
+        "mode": "project-root-read-isolated",
+        "execution_id": execution_id,
+        "invocation_plan_sha256": plan_sha256,
+        "context_packet_sha256": packet_sha256,
+        "launcher": boundary_identity,
+        "helper_sha256": helper_sha256,
+        "project_root": str(root),
+        "protected_paths": [str(root), str(root / ".armiosto")],
+        "namespace_policy": {
+            "host_root": "read-only",
+            "project_root": "empty-read-only",
+            "tmp": "isolated",
+            "run": "isolated",
+            "executor_workspace": "read-write",
+        },
+        "status": "passed" if passed else "failed",
+        "attestation": attestation,
+        "attestation_error": attestation_error,
+        "canaries": {
+            "project_before_sha256": project_canary_sha256,
+            "project_after_sha256": project_post_sha256,
+            "host_tmp_before_sha256": host_tmp_sha256,
+            "host_tmp_after_sha256": host_tmp_post_sha256,
+        },
+        "duration_ns": duration_ns,
+    }
+    proof["proof_sha256"] = _digest(proof)
+    return completed, proof
+
+
 def _executor_environment() -> dict[str, str]:
     allowed = (
         "HOME",
@@ -645,6 +969,7 @@ def run_codex_cli(
     packet: dict[str, Any],
     executor: dict[str, Any],
     executor_identity: dict[str, Any],
+    filesystem_boundary: dict[str, Any] | None,
     role: str,
 ) -> dict[str, Any]:
     if invocation_record.get("status") != "procedure-loaded":
@@ -661,6 +986,8 @@ def run_codex_cli(
         raise ValueError("executor provider/model does not match the authorized binding")
     if binding.get("executor_identity") != executor_identity:
         raise ValueError("executor identity does not match the authorized binding")
+    if binding.get("filesystem_boundary") != filesystem_boundary:
+        raise ValueError("filesystem boundary does not match the authorized binding")
     if invocation_record.get("context_evidence_sha256") != packet.get("packet_sha256"):
         raise ValueError("executor context packet does not match the authorized digest")
     if packet.get("packet_sha256") != _digest(
@@ -723,16 +1050,41 @@ def run_codex_cli(
             "--json",
             "-",
         ]
-        completed = subprocess.run(
-            argv,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=executor["timeout_seconds"],
-            check=False,
-            cwd=workspace,
-            env=_executor_environment(),
-        )
+        boundary_proof: dict[str, Any] | None = None
+        if filesystem_boundary is None:
+            completed = subprocess.run(
+                argv,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=executor["timeout_seconds"],
+                check=False,
+                cwd=workspace,
+                env=_executor_environment(),
+            )
+        else:
+            observed_boundary = resolve_filesystem_boundary(
+                {
+                    "version": filesystem_boundary["version"],
+                    "mode": filesystem_boundary["mode"],
+                    "launcher": filesystem_boundary["resolved_path"],
+                    "launcher_sha256": filesystem_boundary["launcher_sha256"],
+                }
+            )
+            if observed_boundary != filesystem_boundary:
+                raise ValueError("filesystem boundary identity drifted after authorization")
+            completed, boundary_proof = _run_with_filesystem_boundary(
+                root=root,
+                workspace=workspace,
+                argv=argv,
+                prompt=prompt,
+                timeout=executor["timeout_seconds"],
+                environment=_executor_environment(),
+                execution_id=execution_id,
+                plan_sha256=plan["invocation_plan_sha256"],
+                packet_sha256=packet["packet_sha256"],
+                boundary_identity=filesystem_boundary,
+            )
         duration_ns = time.monotonic_ns() - started_ns
         thread_ids: list[str] = []
         usage: dict[str, Any] | None = None
@@ -757,6 +1109,8 @@ def run_codex_cli(
         authoritative_outcome: str | None = None
         validation_error: BaseException | None = None
         try:
+            if boundary_proof is not None and boundary_proof.get("status") != "passed":
+                raise RuntimeError("filesystem boundary validation failed")
             if completed.returncode != 0 or raw_output is None:
                 raise RuntimeError(
                     "Codex CLI execution failed: "
@@ -811,6 +1165,7 @@ def run_codex_cli(
         "command_version": executor_identity["command_version"],
         "sandbox": executor["sandbox"],
         "workspace_scope": "isolated-cwd-with-bounded-prompt",
+        "filesystem_boundary": boundary_proof,
         "separate_process": True,
         "thread_id": thread_ids[0] if len(thread_ids) == 1 else None,
         "reported_thread_ids": thread_ids,
@@ -838,7 +1193,12 @@ def run_codex_cli(
             "accepted"
             if validation_error is None
             else "execution-failed"
-            if completed.returncode != 0 or raw_output is None
+            if completed.returncode != 0
+            or raw_output is None
+            or (
+                boundary_proof is not None
+                and boundary_proof.get("status") != "passed"
+            )
             else "invalid-output"
         ),
         "validation_failure": validation_failure,
@@ -849,6 +1209,11 @@ def run_codex_cli(
     _write_canonical_exclusive(
         root / EXECUTION_DIRECTORY / f"{execution_id}.json", artifact
     )
+    if boundary_proof is not None:
+        _write_canonical_exclusive(
+            root / FILESYSTEM_BOUNDARY_DIRECTORY / f"{execution_id}.json",
+            boundary_proof,
+        )
     if validation_error is not None:
         raise CodexExecutionRejected(str(validation_error), artifact)
     return artifact
@@ -858,6 +1223,7 @@ def _runtime_profile(
     executor: dict[str, Any],
     *,
     executor_identity: dict[str, Any],
+    filesystem_boundary: dict[str, Any] | None,
     fresh_context: bool,
     packet: dict[str, Any],
     approvals: Iterable[str] = (),
@@ -879,6 +1245,7 @@ def _runtime_profile(
             "limits": packet["limits"],
         },
         "executor_identity": executor_identity,
+        "filesystem_boundary": filesystem_boundary,
     }
 
 
@@ -938,6 +1305,11 @@ def _failed_run_record(
             primary_execution.get("changed_project_paths", [])
             if primary_execution is not None
             else []
+        ),
+        "filesystem_boundary": (
+            primary_execution.get("filesystem_boundary")
+            if primary_execution is not None
+            else None
         ),
         "execution_id": (
             primary_execution.get("execution_id")
@@ -1058,6 +1430,9 @@ def _failed_run_record(
         "changed_project_paths": (
             review_execution.get("changed_project_paths", []) if review_execution else []
         ),
+        "filesystem_boundary": (
+            review_execution.get("filesystem_boundary") if review_execution else None
+        ),
         "result": review_execution.get("result") if review_execution else None,
     }
     record: dict[str, Any] = {
@@ -1140,6 +1515,9 @@ def _execute_governed_task(
     )
     primary_executor = configuration["primary_executor"]
     primary_executor_identity = resolve_executor_identity(primary_executor)
+    filesystem_boundary_identity = resolve_filesystem_boundary(
+        configuration["filesystem_boundary"]
+    )
     primary_record, primary_procedure, policy_errors = invoke_skill(
         root,
         registry,
@@ -1155,6 +1533,7 @@ def _execute_governed_task(
         runtime_profile=_runtime_profile(
             primary_executor,
             executor_identity=primary_executor_identity,
+            filesystem_boundary=filesystem_boundary_identity,
             fresh_context=False,
             packet=primary_packet,
             approvals=approval_values,
@@ -1188,6 +1567,7 @@ def _execute_governed_task(
             packet=primary_packet,
             executor=primary_executor,
             executor_identity=primary_executor_identity,
+            filesystem_boundary=filesystem_boundary_identity,
             role="executor",
         )
     except CodexExecutionRejected as execution_error:
@@ -1327,14 +1707,47 @@ def _execute_governed_task(
                 original_criteria,
             ]
         )
-        review_packet = build_context_packet(
-            root,
+        primary_boundary = primary_execution.get("filesystem_boundary")
+        if filesystem_boundary_identity is not None and (
+            not isinstance(primary_boundary, dict)
+            or not filesystem_boundary_proof_digest_is_valid(primary_boundary)
+            or primary_boundary.get("status") != "passed"
+        ):
+            return _failed_run_record(
+                root,
+                run_id=run_id,
+                configuration=configuration,
+                registry_warnings=registry_warnings,
+                task_id=task_id,
+                task=task,
+                capabilities=capability_values,
+                acceptance_criteria=acceptance_values,
+                approvals=approval_values,
+                phase="primary-runtime-boundary",
+                error=RuntimeError(
+                    "independent review requires deterministic filesystem-boundary proof"
+                ),
+                primary_packet=primary_packet,
+                primary_record=primary_record,
+                primary_execution=primary_execution,
+            )
+        review_items = [dict(item) for item in primary_packet["items"]]
+        if isinstance(primary_boundary, dict):
+            boundary_bytes = _canonical_bytes(primary_boundary)
+            review_items.append(
+                {
+                    "path": "AAE_RUNTIME_BOUNDARY.json",
+                    "bytes": len(boundary_bytes),
+                    "sha256": hashlib.sha256(boundary_bytes).hexdigest(),
+                    "content": boundary_bytes.decode("utf-8"),
+                }
+            )
+        review_packet = _finalize_context_packet(
             task_id=f"{task_id}:independent-review",
             task=review_task,
             acceptance_criteria=primary_packet["acceptance_criteria"],
-            evidence_paths=evidence_values,
+            items=review_items,
             limits=limits,
-            evidence_policy=configuration["evidence_paths"],
         )
         _write_canonical_exclusive(
             root / CONTEXT_PACKET_DIRECTORY / f"{review_packet['packet_sha256']}.json",
@@ -1357,6 +1770,7 @@ def _execute_governed_task(
             runtime_profile=_runtime_profile(
                 reviewer,
                 executor_identity=reviewer_identity,
+                filesystem_boundary=filesystem_boundary_identity,
                 fresh_context=True,
                 packet=review_packet,
             ),
@@ -1395,6 +1809,7 @@ def _execute_governed_task(
                 packet=review_packet,
                 executor=reviewer,
                 executor_identity=reviewer_identity,
+                filesystem_boundary=filesystem_boundary_identity,
                 role="reviewer",
             )
         except CodexExecutionRejected as review_error:
@@ -1610,6 +2025,7 @@ def _execute_governed_task(
                 "side_effects"
             ],
             "changed_project_paths": primary_execution["changed_project_paths"],
+            "filesystem_boundary": primary_execution["filesystem_boundary"],
             "duration_ns": primary_execution["duration_ns"],
             "usage": primary_execution["usage"],
             "execution_disposition": primary_execution["disposition"],
@@ -1649,6 +2065,7 @@ def _execute_governed_task(
                 ],
                 "validation_failure": review_execution["validation_failure"],
                 "changed_project_paths": review_execution["changed_project_paths"],
+                "filesystem_boundary": review_execution["filesystem_boundary"],
                 "result": review_execution["result"],
             }
             if review_record is not None and review_execution is not None

@@ -594,6 +594,7 @@ def build_invocation_plan(
             "platform": platform,
             "context_packet": runtime_profile.get("context_packet"),
             "executor_identity": runtime_profile.get("executor_identity"),
+            "filesystem_boundary": runtime_profile.get("filesystem_boundary"),
         },
         "policy": {
             "policy_content_sha256": policy["policy_content_sha256"],
