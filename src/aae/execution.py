@@ -690,11 +690,11 @@ def run_codex_cli(
             "--output-last-message",
             str(result_path),
             "--json",
-            prompt,
+            "-",
         ]
         completed = subprocess.run(
             argv,
-            input="",
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=executor["timeout_seconds"],

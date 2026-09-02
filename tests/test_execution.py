@@ -34,7 +34,9 @@ if sys.argv[1:] == [\"--version\"]:
     raise SystemExit(0)
 Path(__file__).with_name(\"fake-codex-ran\").write_text(\"ran\\n\", encoding=\"utf-8\")
 output = Path(sys.argv[sys.argv.index(\"--output-last-message\") + 1])
-prompt = sys.argv[-1]
+if sys.argv[-1] != \"-\":
+    raise SystemExit(\"prompt must be streamed on stdin\")
+prompt = sys.stdin.read()
 role = \"reviewer\" if \"ROLE\\nreviewer\" in prompt else \"executor\"
 packet = json.loads(prompt.split(\"BOUNDED EVIDENCE PACKET\\n\", 1)[1])
 result = {
@@ -191,6 +193,30 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
             )
             self.assertIn("ORIGINAL TASK", review_packet["task"])
             self.assertIn("Evidence is bounded.", review_packet["task"])
+
+    def test_large_bounded_prompt_is_streamed_over_stdin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root)
+            evidence.write_text("x" * 180_000, encoding="utf-8")
+            config_path = root / ".aae/execution.json"
+            configuration = json.loads(config_path.read_text(encoding="utf-8"))
+            configuration["context_limits"]["max_bytes"] = 300_000
+            configuration["context_limits"]["max_estimated_tokens"] = 300_000
+            config_path.write_text(json.dumps(configuration), encoding="utf-8")
+
+            run = execute_governed_task(
+                root,
+                task_id="large-stdin-fixture-v1",
+                task="Qualify the large bounded engineering fixture.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Large evidence remains bounded.",),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "succeeded")
+            self.assertGreater(run["primary"]["context_packet"]["measured"]["bytes"], 131_072)
 
     def test_denied_policy_never_launches_executor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
