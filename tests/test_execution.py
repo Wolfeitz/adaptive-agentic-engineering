@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -8,7 +10,7 @@ from typing import Any
 import unittest
 
 from aae.accounting import build_agent_skill_accounting
-from aae.cli import init_repository
+from aae.cli import accounting_repository, init_repository
 from aae.execution import (
     _codex_result_schema,
     _validate_result_against_packet,
@@ -287,6 +289,45 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
             reviewer_schema["properties"]["review_verdict"]["enum"],
             ["approved", "changes-required", "blocked"],
         )
+
+    def test_human_accounting_renders_preselection_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root)
+            configuration_path = root / ".aae/execution.json"
+            configuration = json.loads(configuration_path.read_text(encoding="utf-8"))
+            configuration["primary_executor"]["model"] = None
+            configuration_path.write_text(json.dumps(configuration), encoding="utf-8")
+            run = execute_governed_task(
+                root,
+                task_id="preselection-failure-v1",
+                task="Exercise a failure before skill selection.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                evidence_paths=(evidence,),
+            )
+            self.assertEqual(run["failure"]["phase"], "control-plane-prepublication")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = accounting_repository(root, False)
+
+            self.assertEqual(result, 0)
+            rendered = output.getvalue()
+            self.assertIn(run["run_id"], rendered)
+            self.assertIn("no skill selected; executor not started", rendered)
+
+            json_output = io.StringIO()
+            with redirect_stdout(json_output):
+                result = accounting_repository(root, True)
+            self.assertEqual(result, 0)
+            accounting = json.loads(json_output.getvalue())
+            self.assertIsNone(
+                accounting["runtime_evidence"]["governed_runs"][0][
+                    "selected_skill"
+                ]
+            )
 
     def test_invalid_executor_output_preserves_attempt_telemetry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

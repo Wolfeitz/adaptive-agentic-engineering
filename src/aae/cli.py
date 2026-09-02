@@ -886,11 +886,18 @@ def accounting_repository(root: Path, as_json: bool) -> int:
     governed_runs = accounting["runtime_evidence"].get("governed_runs", [])
     print(f"Governed runs: {len(governed_runs)}")
     for run in governed_runs:
-        print(
-            f"- {run['run_id']} [{run['status']}]: "
-            f"{run['selected_skill']['registry_id']} via "
-            f"{run['executor']['provider']}/{run['executor']['model']}"
-        )
+        selected_skill = run.get("selected_skill")
+        if isinstance(selected_skill, dict):
+            print(
+                f"- {run['run_id']} [{run['status']}]: "
+                f"{selected_skill['registry_id']} via "
+                f"{run['executor']['provider']}/{run['executor']['model']}"
+            )
+        else:
+            print(
+                f"- {run['run_id']} [{run['status']}]: "
+                "no skill selected; executor not started"
+            )
     return 0
 
 
