@@ -30,6 +30,11 @@ from .control import (
     load_invocation_policy,
     record_invocation_outcome,
 )
+from .execution import (
+    EXECUTION_CONFIG,
+    execute_governed_task,
+    load_execution_configuration,
+)
 from .integrations import submit_tracker_items
 from .skills import (
     LOCAL_SKILL_SOURCES,
@@ -302,6 +307,12 @@ def validate_repository(root: Path) -> int:
         errors.extend(policy_errors)
     else:
         warnings.extend(policy_errors)
+
+    if (root / EXECUTION_CONFIG).exists():
+        try:
+            load_execution_configuration(root, require_effective_executor=False)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            errors.append(f"Governed execution configuration is invalid: {error}")
 
     required_gitignore = ["*.local.md", "*.local.json", ".aae/runtime/"]
     gitignore = root / ".gitignore"
@@ -872,7 +883,70 @@ def accounting_repository(root: Path, as_json: bool) -> int:
             f"- {skill['registry_id']}@{skill['version']} "
             f"[{skill['lifecycle']}; {skill['execution']['mode']}]: {capabilities}"
         )
+    governed_runs = accounting["runtime_evidence"].get("governed_runs", [])
+    print(f"Governed runs: {len(governed_runs)}")
+    for run in governed_runs:
+        print(
+            f"- {run['run_id']} [{run['status']}]: "
+            f"{run['selected_skill']['registry_id']} via "
+            f"{run['executor']['provider']}/{run['executor']['model']}"
+        )
     return 0
+
+
+def governed_run_repository(
+    root: Path,
+    task: str,
+    task_id: str,
+    skill: str | None,
+    capabilities: Iterable[str],
+    acceptance_criteria: Iterable[str],
+    evidence_paths: Iterable[Path],
+    approvals: Iterable[str],
+    as_json: bool,
+) -> int:
+    try:
+        result = execute_governed_task(
+            root,
+            task_id=task_id,
+            task=task,
+            explicit_skill=skill,
+            capabilities=capabilities,
+            acceptance_criteria=acceptance_criteria,
+            evidence_paths=evidence_paths,
+            approvals=approvals,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        PermissionError,
+        RuntimeError,
+        ValueError,
+        subprocess.SubprocessError,
+    ) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(
+            json.dumps(
+                {
+                    "run_id": result["run_id"],
+                    "status": result["status"],
+                    "task_id": result["task_request"]["task_id"],
+                    "skill": result["primary"]["skill"]["registry_id"],
+                    "executor": result["primary"]["tool"],
+                    "model": result["primary"]["model"],
+                    "review_invocation_id": result["review"].get("invocation_id"),
+                    "accounting_path": result["accounting_path"],
+                    "run_sha256": result["run_sha256"],
+                },
+                indent=2,
+            )
+        )
+    return 0 if result["status"] == "succeeded" else 1
 
 
 def model_route_repository(
@@ -1054,6 +1128,17 @@ def parser() -> argparse.ArgumentParser:
     accounting.add_argument("path", nargs="?", default=".")
     accounting.add_argument("--json", action="store_true")
 
+    governed = commands.add_parser("governed-run")
+    governed.add_argument("task")
+    governed.add_argument("path", nargs="?", default=".")
+    governed.add_argument("--task-id", required=True)
+    governed.add_argument("--skill")
+    governed.add_argument("--capability", action="append", default=[])
+    governed.add_argument("--acceptance", action="append", required=True)
+    governed.add_argument("--evidence", action="append", type=Path, required=True)
+    governed.add_argument("--approval", action="append", default=[])
+    governed.add_argument("--json", action="store_true")
+
     model_route = commands.add_parser("model-route")
     model_route.add_argument("path", nargs="?", default=".")
     model_route.add_argument("--capability", action="append", default=[])
@@ -1197,6 +1282,18 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 0
     if arguments.command == "accounting":
         return accounting_repository(root, arguments.json)
+    if arguments.command == "governed-run":
+        return governed_run_repository(
+            root,
+            arguments.task,
+            arguments.task_id,
+            arguments.skill,
+            arguments.capability,
+            arguments.acceptance,
+            arguments.evidence,
+            arguments.approval,
+            arguments.json,
+        )
     if arguments.command == "model-route":
         return model_route_repository(
             root,

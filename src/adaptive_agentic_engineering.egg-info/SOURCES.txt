@@ -6,6 +6,7 @@ src/aae/accounting.py
 src/aae/adaptive.py
 src/aae/cli.py
 src/aae/control.py
+src/aae/execution.py
 src/aae/integrations.py
 src/aae/semantic.py
 src/aae/skills.py
@@ -76,5 +77,6 @@ tests/test_accounting.py
 tests/test_adaptive.py
 tests/test_cli.py
 tests/test_control.py
+tests/test_execution.py
 tests/test_integrations.py
 tests/test_semantic.py

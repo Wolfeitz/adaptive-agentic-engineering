@@ -592,6 +592,8 @@ def build_invocation_plan(
             "side_effects": side_effects,
             "approvals": sorted(approvals),
             "platform": platform,
+            "context_packet": runtime_profile.get("context_packet"),
+            "executor_identity": runtime_profile.get("executor_identity"),
         },
         "policy": {
             "policy_content_sha256": policy["policy_content_sha256"],

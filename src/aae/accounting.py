@@ -7,6 +7,13 @@ from typing import Any
 
 from .adaptive import load_model_profiles, skill_retriever_entry_points
 from .control import invocation_record_digest_is_valid, load_invocation_policy
+from .execution import (
+    EXECUTION_CONFIG,
+    context_packet_digest_is_valid,
+    execution_artifact_digest_is_valid,
+    governed_run_digest_is_valid,
+    load_execution_configuration,
+)
 from .semantic import provider_entry_points
 from .skills import build_skill_registry
 
@@ -54,6 +61,183 @@ def build_agent_skill_accounting(
             binding = plan.get("binding")
             if isinstance(binding, dict):
                 role_counts[str(binding.get("role", "unknown"))] += 1
+    governed_runs: list[dict[str, Any]] = []
+    governed_directory = root / ".aae/state/governed-runs"
+    if (root / EXECUTION_CONFIG).exists():
+        try:
+            execution_configuration = load_execution_configuration(
+                root, require_effective_executor=False
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            errors.append(f"Governed execution configuration is invalid: {error}")
+        else:
+            governed_directory = root / execution_configuration["accounting_directory"]
+    governed_paths = (
+        sorted(governed_directory.glob("*.json"))
+        if governed_directory.exists()
+        else []
+    )
+    for path in governed_paths:
+        try:
+            run = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            warnings.append(f"Cannot read governed-run accounting record {path}: {error}")
+            continue
+        if not isinstance(run, dict) or not governed_run_digest_is_valid(run):
+            errors.append(f"Governed-run accounting record digest is invalid: {path}")
+            continue
+        primary = run.get("primary")
+        review = run.get("review")
+        task = run.get("task_request")
+        if not isinstance(primary, dict) or not isinstance(review, dict) or not isinstance(task, dict):
+            errors.append(f"Governed-run accounting record structure is invalid: {path}")
+            continue
+        for role, value in (("primary", primary), ("review", review)):
+            execution_id = value.get("execution_id")
+            expected_execution_sha256 = value.get("execution_sha256")
+            if isinstance(execution_id, str):
+                execution_path = (
+                    root / ".aae/runtime/executions" / f"{execution_id}.json"
+                )
+                if not execution_path.is_file():
+                    warnings.append(
+                        f"Governed run {path.name} {role} runtime execution "
+                        "artifact is not retained"
+                    )
+                else:
+                    try:
+                        execution = json.loads(
+                            execution_path.read_text(encoding="utf-8")
+                        )
+                    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                        errors.append(
+                            f"Cannot read governed run {path.name} {role} "
+                            f"execution artifact: {error}"
+                        )
+                    else:
+                        if (
+                            not isinstance(execution, dict)
+                            or not execution_artifact_digest_is_valid(execution)
+                            or execution.get("execution_sha256")
+                            != expected_execution_sha256
+                            or execution.get("execution_id") != execution_id
+                            or execution.get("invocation_id")
+                            != value.get("invocation_id")
+                            or execution.get("role")
+                            != ("executor" if role == "primary" else "reviewer")
+                            or execution.get("context_packet_sha256")
+                            != value.get("context_packet_sha256")
+                            or execution.get("provider") != value.get("provider")
+                            or execution.get("model") != value.get("model")
+                            or execution.get("thread_id") != value.get("thread_id")
+                            or execution.get("duration_ns") != value.get("duration_ns")
+                            or execution.get("usage") != value.get("usage")
+                            or execution.get("result") != value.get("result")
+                            or execution.get("changed_project_paths")
+                            != value.get("changed_project_paths")
+                        ):
+                            errors.append(
+                                f"Governed run {path.name} {role} execution "
+                                "artifact does not reconcile"
+                            )
+            invocation_id = value.get("invocation_id")
+            if isinstance(invocation_id, str):
+                invocation_path = (
+                    root / ".aae/runtime/invocations" / f"{invocation_id}.json"
+                )
+                if invocation_path.is_file():
+                    try:
+                        invocation = json.loads(
+                            invocation_path.read_text(encoding="utf-8")
+                        )
+                    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                        errors.append(
+                            f"Cannot read governed run {path.name} {role} "
+                            f"invocation record: {error}"
+                        )
+                    else:
+                        if (
+                            not isinstance(invocation, dict)
+                            or not invocation_record_digest_is_valid(invocation)
+                            or invocation.get("invocation_id") != invocation_id
+                            or invocation.get("context_evidence_sha256")
+                            != value.get("context_packet_sha256")
+                            or invocation.get("invocation_plan", {}).get(
+                                "invocation_plan_sha256"
+                            )
+                            != value.get("invocation_plan_sha256")
+                            or (
+                                value.get("invocation_status") is not None
+                                and invocation.get("status")
+                                != value.get("invocation_status")
+                            )
+                        ):
+                            errors.append(
+                                f"Governed run {path.name} {role} invocation "
+                                "record does not reconcile"
+                            )
+                else:
+                    warnings.append(
+                        f"Governed run {path.name} {role} runtime invocation "
+                        "record is not retained"
+                    )
+        for role, value in (("primary", primary), ("review", review)):
+            packet_sha256 = value.get("context_packet_sha256")
+            if isinstance(packet_sha256, str):
+                packet_path = (
+                    root / ".aae/runtime/context-packets" / f"{packet_sha256}.json"
+                )
+                if packet_path.is_file():
+                    try:
+                        packet = json.loads(packet_path.read_text(encoding="utf-8"))
+                    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                        errors.append(
+                            f"Cannot read governed run {path.name} {role} "
+                            f"context packet: {error}"
+                        )
+                    else:
+                        if (
+                            not isinstance(packet, dict)
+                            or not context_packet_digest_is_valid(packet)
+                            or packet.get("packet_sha256") != packet_sha256
+                        ):
+                            errors.append(
+                                f"Governed run {path.name} {role} context "
+                                "packet does not reconcile"
+                            )
+                else:
+                    warnings.append(
+                        f"Governed run {path.name} {role} runtime context "
+                        "packet is not retained"
+                    )
+        governed_runs.append(
+            {
+                "run_id": run.get("run_id"),
+                "run_sha256": run.get("run_sha256"),
+                "status": run.get("status"),
+                "task": task,
+                "selected_skill": primary.get("skill"),
+                "selection_reason": primary.get("selection_reason"),
+                "capability_demand": primary.get("capability_demand"),
+                "policy": primary.get("policy"),
+                "invocation_id": primary.get("invocation_id"),
+                "invocation_plan_sha256": primary.get("invocation_plan_sha256"),
+                "context_packet_sha256": primary.get("context_packet_sha256"),
+                "context_packet": primary.get("context_packet"),
+                "executor": {
+                    "provider": primary.get("provider"),
+                    "model": primary.get("model"),
+                    "tool": primary.get("tool"),
+                },
+                "authorized_side_effects": primary.get("authorized_side_effects"),
+                "changed_project_paths": primary.get("changed_project_paths"),
+                "usage": primary.get("usage"),
+                "review": review,
+                "duration_ns": run.get("duration_ns"),
+                "fallbacks": run.get("fallbacks"),
+                "retries": run.get("retries"),
+            }
+        )
     model_profiles, model_profile_errors = load_model_profiles(root)
     configured_profiles = model_profiles.get("profiles", [])
     if model_profile_errors and (root / ".aae/model-profiles.json").exists():
@@ -120,6 +304,8 @@ def build_agent_skill_accounting(
             "invocation_count": sum(invocation_counts.values()),
             "invocation_status_counts": dict(sorted(invocation_counts.items())),
             "runtime_role_counts": dict(sorted(role_counts.items())),
+            "governed_run_count": len(governed_runs),
+            "governed_runs": governed_runs,
         },
         "extension_points": {
             "semantic_provider_entry_points": sorted(provider_entry_points()),
@@ -169,6 +355,8 @@ def build_agent_skill_accounting(
                 "advisory lifecycle evaluation and promotion proposals",
                 "historical-use graph",
                 "CI policy and OpenTelemetry-compatible trace exports",
+                "bounded governed execution through an explicit Codex CLI adapter",
+                "separate-process independent review with neutral evidence packets",
             ],
             "not_implied": [
                 "a permanent multi-agent cast",

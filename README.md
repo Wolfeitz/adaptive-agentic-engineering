@@ -23,6 +23,7 @@ This repository is a runnable reference bootstrap, not a claim that every part o
 - atomic semantic releases, rollback, incremental impact graphs, and provenance-bearing task/review packets;
 - offline Azure DevOps, GitHub, and Jira payload exporters that never submit without a separate integration;
 - deterministic agents-and-skills accounting;
+- bounded governed execution through an explicit Codex CLI adapter, with a separate-process review path;
 - a CI workflow and standard-library test suite;
 - a bootstrap command for greenfield or existing repositories.
 
@@ -84,6 +85,7 @@ aae tracker-export    Create offline Azure DevOps, GitHub, or Jira payloads
 aae tracker-submit    Submit active task packets after explicit external-write confirmation
 aae providers         List installed semantic-provider entry points
 aae accounting        Inventory skills, ephemeral roles, and deterministic authority
+aae governed-run      Execute one policy-authorized skill from a bounded evidence packet
 aae model-route       Select an eligible configured model and fallback order
 aae retrievers        List semantic skill-retriever entry points
 aae skill-evaluate    Evaluate lifecycle evidence or emit a promotion proposal
@@ -99,6 +101,14 @@ AAE workflows request capabilities. Versioned skills advertise reusable procedur
 The invocation control plane evaluates source trust, approval, integrity, lifecycle, side effects, tool/model/platform/network requirements, data classification, and independence before loading a procedure. See [docs/semantic-control-plane.md](docs/semantic-control-plane.md).
 
 AAE intentionally seeds skills but no permanent theatrical agent cast. Run `aae accounting --json` or read [docs/agents-and-skills.md](docs/agents-and-skills.md) for the exact distinction.
+
+`aae governed-run` is the narrow 0.3 execution proof: AAE builds and persists
+the demand, candidate set, selection, policy decision, invocation plan, bounded
+evidence packet, executor result, and optional independent-review result before
+publishing a canonical run record. The only bundled semantic execution adapter
+is noninteractive `codex exec`; projects must explicitly configure its command,
+model, policy authorization, packet limits, and review behavior. See
+[docs/governed-execution.md](docs/governed-execution.md).
 
 Model profiles are deliberately local configuration. Copy
 `.aae/model-profiles.local.example.json` to the ignored
