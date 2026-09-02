@@ -749,6 +749,14 @@ checks = {
     "host_tmp_canary_hidden": not Path(config["host_tmp_canary"]).exists(),
     "protected_store_hidden": not (project / ".armiosto").exists(),
 }
+codex_state = Path(config["codex_state"])
+state_probe = codex_state / "aae-state-write-probe"
+state_probe.write_text("allowed", encoding="utf-8")
+checks["codex_state_writable"] = state_probe.read_text(encoding="utf-8") == "allowed"
+state_probe.unlink()
+checks["codex_auth_readable"] = (
+    not config["codex_auth_required"] or Path(config["codex_auth"]).is_file()
+)
 probe = project / ".aae-boundary-write-probe"
 write_errno = None
 try:
@@ -812,7 +820,7 @@ def _run_with_filesystem_boundary(
     namespace_workspace = "/tmp/aae-workspace"
     namespace_command = "/tmp/aae-codex-command"
     namespace_config = f"{namespace_workspace}/boundary-config.json"
-    config = {
+    config: dict[str, Any] = {
         "boundary_version": BOUNDARY_VERSION,
         "nonce": nonce,
         "project_root": str(root),
@@ -821,6 +829,18 @@ def _run_with_filesystem_boundary(
         "host_tmp_canary": str(host_tmp_canary),
         "command": namespace_command,
     }
+    codex_state = Path(
+        environment.get("CODEX_HOME")
+        or (Path(environment["HOME"]) / ".codex")
+    ).resolve()
+    codex_auth = codex_state / "auth.json"
+    config.update(
+        {
+            "codex_state": str(codex_state),
+            "codex_auth": str(codex_auth),
+            "codex_auth_required": codex_auth.is_file(),
+        }
+    )
     (workspace / "boundary-config.json").write_bytes(_canonical_bytes(config) + b"\n")
     translated_argv = [
         namespace_command if value == argv[0] else
@@ -838,6 +858,12 @@ def _run_with_filesystem_boundary(
         "--dev", "/dev",
         "--tmpfs", "/tmp",
         "--tmpfs", "/run",
+        "--tmpfs", str(codex_state),
+        *(
+            ["--ro-bind", str(codex_auth), str(codex_auth)]
+            if codex_auth.is_file()
+            else []
+        ),
         "--bind", str(workspace), namespace_workspace,
         "--ro-bind", argv[0], namespace_command,
         "--tmpfs", str(root),
@@ -894,6 +920,8 @@ def _run_with_filesystem_boundary(
         "project_canary_hidden": True,
         "host_tmp_canary_hidden": True,
         "protected_store_hidden": True,
+        "codex_state_writable": True,
+        "codex_auth_readable": True,
         "project_root_write_denied": True,
         "executor_workspace_writable": True,
     }
@@ -930,6 +958,7 @@ def _run_with_filesystem_boundary(
             "tmp": "isolated",
             "run": "isolated",
             "executor_workspace": "read-write",
+            "codex_state": "isolated-write-with-read-only-auth",
         },
         "status": "passed" if passed else "failed",
         "attestation": attestation,
