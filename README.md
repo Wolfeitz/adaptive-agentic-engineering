@@ -116,7 +116,10 @@ AAE can use HVE Core as a VS Code execution adapter. It does not make HVE Core t
 
 ## Project status
 
-Version 0.3 is a runnable reference control plane intended for experiments across Codex, VS Code/Copilot, and HVE Core. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
+Version 0.3 is a runnable reference control plane intended for experiments
+across Codex, VS Code/Copilot, and HVE Core. See the strict
+[AAE 0.3 architecture audit](docs/architecture-audit-0.3.md),
+[ROADMAP.md](ROADMAP.md), and the repository's own `.aae/specs/` contracts.
 
 ## License
 

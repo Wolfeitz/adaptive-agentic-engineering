@@ -37,7 +37,6 @@ from .skills import (
     SKILL_SOURCES,
     build_skill_registry,
     discover_skills,
-    load_skill_instructions,
     record_skill_event,
     resolve_skill_metadata,
     summarize_skill_events,

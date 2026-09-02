@@ -1,5 +1,10 @@
 # AAE Roadmap
 
+Checkboxes denote working repository integrations. Items marked partial or
+unintegrated remain open even when an isolated function or contract exists. See
+[`docs/architecture-audit-0.3.md`](docs/architecture-audit-0.3.md) for strict
+accounting.
+
 ## Phase 0 — Reference bootstrap
 
 - [x] Open-world Markdown intent plane
@@ -23,7 +28,7 @@
 ## Phase 1 — Semantic compiler
 
 - [x] Provider-neutral semantic intermediate representation
-- [x] Pluggable semantic-provider entry-point interface
+- [ ] Pluggable semantic-provider entry-point interface (IMPLEMENTED_BUT_UNINTEGRATED)
 - [x] Incremental impact graph and downstream impact delta
 - [x] Generated artifact provenance
 - [x] Conflict and clarification workflow
@@ -34,21 +39,21 @@
 ## Phase 2 — Adaptive execution
 
 - [x] Deterministic explicit-risk and evidence-gap classifier
-- [x] Bounded task-packet compiler
+- [ ] Bounded task-packet compiler (PARTIAL: no byte/token/item budget)
 - [x] Capability router integration with bounded task packets
-- [x] Ephemeral specialist routing as an optional skill execution binding
-- [x] Independent challenge and review packets
+- [ ] Ephemeral specialist routing as an optional skill execution binding (PARTIAL)
+- [ ] Independent challenge and review packets (PARTIAL: packet exists; execution independence is not attested)
 - [x] Model profile registry and fallback policy
-- [x] Pluggable semantic skill retrieval bounded to the deterministic candidate set
+- [ ] Pluggable semantic skill retrieval bounded to the deterministic candidate set (IMPLEMENTED_BUT_UNINTEGRATED)
 - [x] Versioned skill invocation and outcome telemetry
-- [x] Evaluation corpus and governed lifecycle promotion workflow
+- [ ] Evaluation corpus and governed lifecycle promotion workflow (PARTIAL: proposal-only promotion exists; no durable corpus)
 - [x] Architecture dependency graph augmentation
-- [x] Historical-use graph augmentation for skill retrieval
+- [ ] Historical-use graph augmentation for skill retrieval (IMPLEMENTED_BUT_UNINTEGRATED)
 
 ## Phase 3 — Integrations
 
 - [x] Azure DevOps offline work-item payload adapter
-- [x] GitHub Issues offline payload adapter
+- [ ] GitHub Issues/Projects adapter (PARTIAL: Issues exists; Projects does not)
 - [x] Jira offline issue payload adapter
 - [x] Credentialed live tracker submission adapters
 - [x] CI policy-generation adapters

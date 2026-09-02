@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .adaptive import load_model_profiles, skill_retriever_entry_points
-from .control import load_invocation_policy
+from .control import invocation_record_digest_is_valid, load_invocation_policy
 from .semantic import provider_entry_points
 from .skills import build_skill_registry
 
@@ -45,6 +45,9 @@ def build_agent_skill_accounting(
         if not isinstance(record, dict):
             warnings.append(f"Invocation accounting record is not an object: {path}")
             continue
+        if not invocation_record_digest_is_valid(record):
+            errors.append(f"Invocation accounting record digest is invalid: {path}")
+            continue
         invocation_counts[str(record.get("status", "unknown"))] += 1
         plan = record.get("invocation_plan")
         if isinstance(plan, dict):
@@ -75,7 +78,7 @@ def build_agent_skill_accounting(
                 },
                 {
                     "role": "deterministic-control-plane",
-                    "purpose": "Reserve identities, validate policy, rank candidates, persist evidence, and authorize state transitions in code rather than agent judgment.",
+                    "purpose": "Derive and bind identities, validate policy, rank candidates, persist evidence, and authorize state transitions in code rather than agent judgment.",
                     "persistent": True,
                     "is_agent": False,
                 },

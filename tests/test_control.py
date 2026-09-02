@@ -296,6 +296,63 @@ class CapabilityControlTests(unittest.TestCase):
             )
             self.assertEqual(saved["status"], "completed")
             self.assertEqual(saved["outcome"]["context_tokens"], 123)
+            repeated = record_invocation_outcome(
+                root,
+                invocation_id,
+                outcome="failed",
+                verification=None,
+                evidence=None,
+                context_tokens=None,
+                execution_cost=None,
+            )
+            self.assertIn("not eligible", str(repeated))
+
+    def test_outcome_rejects_invalid_identity_and_tampered_record(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repository(root)
+            invalid = record_invocation_outcome(
+                root,
+                "../../escape",
+                outcome="succeeded",
+                verification=None,
+                evidence=None,
+                context_tokens=None,
+                execution_cost=None,
+            )
+            self.assertIn("canonical UUID", str(invalid))
+
+            registry, errors, _ = build_skill_registry(root)
+            self.assertEqual(errors, [])
+            record, _, _ = invoke_skill(
+                root,
+                registry,
+                task="verify the completed change",
+                explicit_skill="project:acceptance-verify",
+                explicit_capabilities=["acceptance-verification"],
+                runtime_profile={
+                    "provider": "local",
+                    "model": "unit-test",
+                    "available_tools": ["test-execution"],
+                    "model_capabilities": ["reasoning"],
+                    "model_data_classifications": ["internal"],
+                    "data_classification": "internal",
+                },
+            )
+            path = root / ".aae/runtime/invocations" / f"{record['invocation_id']}.json"
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            saved["status"] = "completed"
+            path.write_text(json.dumps(saved), encoding="utf-8")
+            error = record_invocation_outcome(
+                root,
+                record["invocation_id"],
+                outcome="succeeded",
+                verification=None,
+                evidence=None,
+                context_tokens=None,
+                execution_cost=None,
+            )
+            self.assertIn("invalid record digest", str(error))
 
     def test_invalid_policy_and_outcome_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -315,10 +372,7 @@ class CapabilityControlTests(unittest.TestCase):
                 execution_cost=None,
             )
             assert error is not None
-            self.assertIn(
-                "not found",
-                error,
-            )
+            self.assertIn("canonical UUID", error)
 
 
 if __name__ == "__main__":

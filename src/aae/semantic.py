@@ -543,6 +543,91 @@ def _read_json(path: Path) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
+def verify_semantic_release(
+    root: Path, release_id: str | None = None
+) -> tuple[dict[str, Any] | None, dict[str, Any], Path]:
+    """Verify a published release before any authoritative read or transition."""
+    generated = root / ".aae/generated"
+    active: dict[str, Any] | None = None
+    if release_id is None:
+        active_path = generated / "active-release.json"
+        if not active_path.is_file():
+            raise ValueError("no active semantic release exists")
+        active = _read_json(active_path)
+        if active.get("schema_version") != 1:
+            raise ValueError("active semantic release schema_version must be 1")
+        release_id = active.get("release_id")
+    if not _valid_id(release_id):
+        raise ValueError("semantic release id must be a portable identifier")
+
+    release_path = generated / "releases" / cast(str, release_id)
+    manifest_path = release_path / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"semantic release does not exist: {release_id}")
+    manifest = _read_json(manifest_path)
+    if manifest.get("schema_version") != 1:
+        raise ValueError(f"semantic release manifest schema_version is invalid: {release_id}")
+    expected_manifest_digest = manifest.get("manifest_sha256")
+    observed_manifest_digest = canonical_digest(
+        {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+    )
+    if expected_manifest_digest != observed_manifest_digest:
+        raise ValueError(f"semantic release manifest digest mismatch: {release_id}")
+    if manifest.get("release_id") != release_id:
+        raise ValueError(f"semantic release manifest identity mismatch: {release_id}")
+    if active is not None and active.get("manifest_sha256") != observed_manifest_digest:
+        raise ValueError(f"active semantic release manifest binding mismatch: {release_id}")
+
+    entries = manifest.get("files")
+    if not isinstance(entries, list):
+        raise ValueError(f"semantic release manifest files must be a list: {release_id}")
+    declared: dict[str, str] = {}
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"semantic release manifest files[{index}] is invalid")
+        relative = entry.get("path")
+        digest = entry.get("sha256")
+        if not _safe_relative_path(relative) or not isinstance(digest, str):
+            raise ValueError(f"semantic release manifest files[{index}] is invalid")
+        relative_text = cast(str, relative)
+        if relative_text in declared:
+            raise ValueError(f"semantic release manifest has duplicate file: {relative_text}")
+        declared[relative_text] = digest
+
+    actual = {
+        path.relative_to(release_path).as_posix()
+        for path in release_path.rglob("*")
+        if path.is_file() and path.name != "manifest.json"
+    }
+    if actual != set(declared):
+        raise ValueError(f"semantic release file inventory mismatch: {release_id}")
+    for relative, expected_digest in declared.items():
+        path = release_path / relative
+        observed_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if observed_digest != expected_digest:
+            raise ValueError(f"semantic release file digest mismatch: {relative}")
+
+    semantic_path = release_path / "semantic-model.json"
+    semantic_document = _read_json(semantic_path)
+    semantic_digest = canonical_digest(semantic_document)
+    if manifest.get("semantic_document_sha256") != semantic_digest:
+        raise ValueError(f"semantic release document digest mismatch: {release_id}")
+    if release_id != f"semantic-v1-{semantic_digest[:16]}":
+        raise ValueError(f"semantic release id does not match its document: {release_id}")
+
+    for relative in sorted(declared):
+        if not relative.startswith("task-packets/"):
+            continue
+        packet = _read_json(release_path / relative)
+        packet_digest = packet.get("packet_sha256")
+        observed_packet_digest = canonical_digest(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        if packet_digest != observed_packet_digest:
+            raise ValueError(f"semantic task packet digest mismatch: {relative}")
+    return active, manifest, release_path
+
+
 def publish_semantic_document(root: Path, document: Mapping[str, Any]) -> PublicationResult:
     registry, registry_errors, _ = build_skill_registry(root)
     errors, _ = validate_semantic_document(document, registry, root=root)
@@ -563,7 +648,8 @@ def publish_semantic_document(root: Path, document: Mapping[str, Any]) -> Public
     active_path = generated / "active-release.json"
     previous_document: dict[str, Any] | None = None
     if active_path.exists():
-        previous_active = _read_json(active_path)
+        previous_active, _, _ = verify_semantic_release(root)
+        assert previous_active is not None
         previous_id = previous_active.get("release_id")
         if isinstance(previous_id, str) and previous_id != release_id:
             previous_model = releases / previous_id / "semantic-model.json"
@@ -636,6 +722,7 @@ def publish_semantic_document(root: Path, document: Mapping[str, Any]) -> Public
 
     created = False
     if release_path.exists():
+        verify_semantic_release(root, release_id)
         existing = _read_json(release_path / "manifest.json")
         if existing != manifest:
             raise ValueError(f"existing release {release_id} does not match expected manifest")
@@ -670,18 +757,13 @@ def rollback_release(root: Path, target_release_id: str | None = None) -> str:
     active_path = generated / "active-release.json"
     if not active_path.exists():
         raise ValueError("no active semantic release exists")
-    active = _read_json(active_path)
+    active, _, _ = verify_semantic_release(root)
+    assert active is not None
     target = target_release_id or active.get("previous_release_id")
     if not isinstance(target, str) or not target:
         raise ValueError("no previous semantic release is available")
-    manifest_path = generated / "releases" / target / "manifest.json"
-    if not manifest_path.is_file():
-        raise ValueError(f"semantic release does not exist: {target}")
-    manifest = _read_json(manifest_path)
-    expected = manifest.pop("manifest_sha256", None)
-    observed = canonical_digest(manifest)
-    if expected != observed:
-        raise ValueError(f"semantic release manifest digest mismatch: {target}")
+    _, manifest, _ = verify_semantic_release(root, target)
+    observed = cast(str, manifest["manifest_sha256"])
     _atomic_json(
         active_path,
         {
@@ -697,21 +779,23 @@ def rollback_release(root: Path, target_release_id: str | None = None) -> str:
 def load_active_task_packet(root: Path, task_id: str) -> dict[str, Any]:
     if not _valid_id(task_id):
         raise ValueError("task id must be a portable identifier")
-    active = _read_json(root / ".aae/generated/active-release.json")
+    active, _, release_path = verify_semantic_release(root)
+    assert active is not None
     release_id = active.get("release_id")
     if not isinstance(release_id, str):
         raise ValueError("active release has no release id")
     return _read_json(
-        root / ".aae/generated/releases" / release_id / "task-packets" / f"{task_id}.json"
+        release_path / "task-packets" / f"{task_id}.json"
     )
 
 
 def export_tracker_items(root: Path, provider: str) -> list[dict[str, Any]]:
     if provider not in TRACKER_PROVIDERS:
         raise ValueError(f"tracker provider must be one of {sorted(TRACKER_PROVIDERS)}")
-    active = _read_json(root / ".aae/generated/active-release.json")
+    active, _, release_path = verify_semantic_release(root)
+    assert active is not None
     release_id = str(active["release_id"])
-    packet_root = root / ".aae/generated/releases" / release_id / "task-packets"
+    packet_root = release_path / "task-packets"
     result: list[dict[str, Any]] = []
     for path in sorted(packet_root.glob("*.json")):
         packet = _read_json(path)

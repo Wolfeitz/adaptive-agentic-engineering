@@ -58,3 +58,16 @@ Configured provider or retriever plug-ins may internally use models or agents,
 but AAE records them as adapters until a runtime actually binds an executor.
 
 An active runtime may create a specialist when fresh context, model diversity, or expertise is justified. The invocation record must preserve why that binding occurred.
+
+## AAE 0.3 enforcement boundary
+
+Role names and the `fresh_context` value are a portable execution contract, not
+proof that a separate process or conversation was created. Approval, tool,
+model, network, and data values supplied by a runtime are assertions checked by
+deterministic policy. Operating-system permissions, CI protection, and the
+invoking platform remain the security and human-authorization boundaries. AAE
+does not let a skill promote itself, but it cannot prevent a process with direct
+repository access from bypassing the CLI.
+
+See [the AAE 0.3 architecture audit](architecture-audit-0.3.md) for strict
+implemented, partial, unintegrated, and deferred accounting.

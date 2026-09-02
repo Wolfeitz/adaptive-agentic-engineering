@@ -79,6 +79,20 @@ def _digest(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def invocation_record_digest(record: dict[str, Any]) -> str:
+    return _digest(
+        {
+            key: value
+            for key, value in record.items()
+            if key not in {"recorded_at", "runtime_instance", "invocation_record_sha256"}
+        }
+    )
+
+
+def invocation_record_digest_is_valid(record: dict[str, Any]) -> bool:
+    return record.get("invocation_record_sha256") == invocation_record_digest(record)
+
+
 def _tokens(value: str) -> set[str]:
     return set(TOKEN_PATTERN.findall(value.lower()))
 
@@ -700,13 +714,7 @@ def invoke_skill(
                 "loaded_at": datetime.now(timezone.utc).isoformat(),
             }
 
-    record["invocation_record_sha256"] = _digest(
-        {
-            key: value
-            for key, value in record.items()
-            if key not in {"recorded_at", "runtime_instance", "invocation_record_sha256"}
-        }
-    )
+    record["invocation_record_sha256"] = invocation_record_digest(record)
     _write_json(root / INVOCATION_DIRECTORY / f"{invocation_id}.json", record)
     return record, procedure, policy_errors
 
@@ -727,6 +735,12 @@ def record_invocation_outcome(
         return "Context tokens must be non-negative"
     if execution_cost is not None and execution_cost < 0:
         return "Execution cost must be non-negative"
+    try:
+        parsed_id = uuid.UUID(invocation_id)
+    except ValueError:
+        return "Invocation id must be a canonical UUID"
+    if str(parsed_id) != invocation_id:
+        return "Invocation id must be a canonical UUID"
     path = root / INVOCATION_DIRECTORY / f"{invocation_id}.json"
     if not path.is_file():
         return f"Invocation record not found: {invocation_id}"
@@ -734,7 +748,9 @@ def record_invocation_outcome(
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         return f"Cannot read invocation record: {error}"
-    if record.get("status") not in {"procedure-loaded", "completed", "failed"}:
+    if not isinstance(record, dict) or not invocation_record_digest_is_valid(record):
+        return f"Invocation {invocation_id} has an invalid record digest"
+    if record.get("status") != "procedure-loaded":
         return f"Invocation {invocation_id} was not eligible for execution"
     record["outcome"] = {
         "result": outcome,
@@ -751,12 +767,6 @@ def record_invocation_outcome(
         if outcome == "superseded"
         else "failed"
     )
-    record["invocation_record_sha256"] = _digest(
-        {
-            key: value
-            for key, value in record.items()
-            if key not in {"recorded_at", "runtime_instance", "invocation_record_sha256"}
-        }
-    )
+    record["invocation_record_sha256"] = invocation_record_digest(record)
     _write_json(path, record)
     return None
