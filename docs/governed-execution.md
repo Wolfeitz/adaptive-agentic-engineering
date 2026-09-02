@@ -54,6 +54,21 @@ executor result is deliberately withheld so the reviewer reconstructs the
 assessment instead of inheriting its framing. Distinct invocation, execution,
 and Codex thread identities are recorded.
 
+## Deterministic outcome contract
+
+The executor reports findings and one status for every required acceptance
+criterion, exactly once and in packet order. AAE derives the authoritative
+outcome from those statuses:
+
+- any `failed` criterion produces `failed`;
+- otherwise, any `blocked` criterion produces `blocked`;
+- otherwise, all criteria are `passed` and the outcome is `succeeded`.
+
+The structured-output `outcome` field remains for compatibility, but it is
+informational. AAE requires it to equal the derived outcome and rejects a
+contradiction as `invalid-output`. Criterion validation and evidence-reference
+validation remain fail-closed.
+
 ## Context bounds
 
 Every governed run defines positive limits for:
@@ -81,6 +96,14 @@ Raw packets, subprocess artifacts, and invocation records live below ignored
 exclusive, canonical, digest-bearing governed-run record suitable for durable
 version control. `aae accounting` and `aae accounting --json` reconcile these
 records and fail on digest drift.
+
+Every launched semantic attempt publishes an execution artifact before a
+validation rejection is surfaced. Invalid output is not retained verbatim, but
+the artifact retains its raw and parsed digests, invocation/thread identity,
+role, executor/model and command identity, packet and plan bindings, duration,
+usage when emitted, validation failure, and final AAE disposition. This keeps
+diagnostic provenance without duplicating the bounded prompt or rejected model
+content.
 
 This feature does not implement hooks, arbitrary command execution, background
 agents, a provider catalog, credentials, retrievers, or distributed

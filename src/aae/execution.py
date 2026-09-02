@@ -178,6 +178,14 @@ def execution_artifact_digest_is_valid(record: dict[str, Any]) -> bool:
     )
 
 
+class CodexExecutionRejected(ValueError):
+    """A launched Codex process whose output failed deterministic AAE validation."""
+
+    def __init__(self, message: str, artifact: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.artifact = artifact
+
+
 def context_packet_digest_is_valid(record: dict[str, Any]) -> bool:
     return record.get("packet_sha256") == _digest(
         {key: value for key, value in record.items() if key != "packet_sha256"}
@@ -527,7 +535,7 @@ def _validate_codex_result(value: object, expected_role: str) -> dict[str, Any]:
 
 def _validate_result_against_packet(
     result: dict[str, Any], packet: dict[str, Any]
-) -> None:
+) -> str:
     expected = list(packet["acceptance_criteria"])
     observed = [entry["criterion"] for entry in result["verification"]]
     if observed != expected:
@@ -535,18 +543,24 @@ def _validate_result_against_packet(
             "Codex executor must verify every acceptance criterion exactly once "
             "in packet order"
         )
-    all_passed = all(
-        entry["status"] == "passed" for entry in result["verification"]
-    )
-    if (result["outcome"] == "succeeded") != all_passed:
+    statuses = [entry["status"] for entry in result["verification"]]
+    if any(status == "failed" for status in statuses):
+        derived_outcome = "failed"
+    elif any(status == "blocked" for status in statuses):
+        derived_outcome = "blocked"
+    else:
+        derived_outcome = "succeeded"
+    if result["outcome"] != derived_outcome:
         raise ValueError(
-            "Codex executor outcome must be succeeded exactly when every "
-            "acceptance criterion passed"
+            "Codex executor informational outcome disagrees with the "
+            f"deterministic AAE outcome: reported={result['outcome']}, "
+            f"derived={derived_outcome}"
         )
-    if result["outcome"] == "succeeded" and any(
+    if derived_outcome == "succeeded" and any(
         finding["severity"] == "error" for finding in result["findings"]
     ):
         raise ValueError("a succeeded Codex result cannot contain an error finding")
+    return derived_outcome
 
 
 def _prompt(
@@ -562,7 +576,11 @@ def _prompt(
         "only the provided procedure and bounded evidence packet. Do not inspect the "
         "host, repository, environment, conversation history, or any unlisted file. "
         "Do not authorize a write or state transition. Evidence refs must name provided "
-        "packet paths. Return only the required structured result."
+        "packet paths. Report every acceptance criterion exactly once and in packet "
+        "order. The outcome field is informational: report failed if any criterion "
+        "failed, otherwise blocked if any criterion is blocked, otherwise succeeded. "
+        "AAE derives the authoritative outcome independently. Return only the required "
+        "structured result."
     )
     return "\n\n".join(
         [
@@ -716,27 +734,6 @@ def run_codex_cli(
             env=_executor_environment(),
         )
         duration_ns = time.monotonic_ns() - started_ns
-        if completed.returncode != 0 or not result_path.is_file():
-            raise RuntimeError(
-                "Codex CLI execution failed: "
-                f"exit={completed.returncode}, stderr_sha256="
-                f"{hashlib.sha256(completed.stderr.encode()).hexdigest()}"
-            )
-        result = _validate_codex_result(
-            json.loads(result_path.read_text(encoding="utf-8")), role
-        )
-        _validate_result_against_packet(result, packet)
-        allowed_paths = {str(item["path"]) for item in packet["items"]}
-        for collection in ("findings", "verification"):
-            for entry in result[collection]:
-                for reference in entry["evidence_refs"]:
-                    if not any(
-                        reference == path or reference.startswith(f"{path}:")
-                        for path in allowed_paths
-                    ):
-                        raise ValueError(
-                            f"Codex executor cited evidence outside the bounded packet: {reference}"
-                        )
         thread_ids: list[str] = []
         usage: dict[str, Any] | None = None
         for line in completed.stdout.splitlines():
@@ -750,13 +747,61 @@ def run_codex_cli(
                 thread_ids.append(event["thread_id"])
             if event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict):
                 usage = event["usage"]
-        if len(thread_ids) != 1:
-            raise RuntimeError("Codex CLI did not report exactly one fresh thread identity")
+        raw_output = result_path.read_bytes() if result_path.is_file() else None
+        raw_output_sha256 = (
+            hashlib.sha256(raw_output).hexdigest() if raw_output is not None else None
+        )
+        parsed_output: object | None = None
+        parsed_output_sha256: str | None = None
+        result: dict[str, Any] | None = None
+        authoritative_outcome: str | None = None
+        validation_error: BaseException | None = None
+        try:
+            if completed.returncode != 0 or raw_output is None:
+                raise RuntimeError(
+                    "Codex CLI execution failed: "
+                    f"exit={completed.returncode}, stderr_sha256="
+                    f"{hashlib.sha256(completed.stderr.encode()).hexdigest()}"
+                )
+            parsed_output = json.loads(raw_output.decode("utf-8"))
+            parsed_output_sha256 = _digest(parsed_output)
+            result = _validate_codex_result(parsed_output, role)
+            authoritative_outcome = _validate_result_against_packet(result, packet)
+            allowed_paths = {str(item["path"]) for item in packet["items"]}
+            for collection in ("findings", "verification"):
+                for entry in result[collection]:
+                    for reference in entry["evidence_refs"]:
+                        if not any(
+                            reference == path or reference.startswith(f"{path}:")
+                            for path in allowed_paths
+                        ):
+                            raise ValueError(
+                                "Codex executor cited evidence outside the bounded "
+                                f"packet: {reference}"
+                            )
+            if len(thread_ids) != 1:
+                raise RuntimeError(
+                    "Codex CLI did not report exactly one fresh thread identity"
+                )
+        except (UnicodeError, json.JSONDecodeError, ValueError, RuntimeError) as error:
+            validation_error = error
 
+    validation_failure = (
+        {
+            "type": type(validation_error).__name__,
+            "message": str(validation_error),
+            "message_sha256": hashlib.sha256(
+                str(validation_error).encode("utf-8")
+            ).hexdigest(),
+        }
+        if validation_error is not None
+        else None
+    )
     artifact: dict[str, Any] = {
         "schema_version": 1,
         "execution_id": execution_id,
         "invocation_id": invocation_record["invocation_id"],
+        "invocation_plan_sha256": plan["invocation_plan_sha256"],
         "role": role,
         "adapter": "codex-cli",
         "provider": executor["provider"],
@@ -767,7 +812,8 @@ def run_codex_cli(
         "sandbox": executor["sandbox"],
         "workspace_scope": "isolated-cwd-with-bounded-prompt",
         "separate_process": True,
-        "thread_id": thread_ids[0],
+        "thread_id": thread_ids[0] if len(thread_ids) == 1 else None,
+        "reported_thread_ids": thread_ids,
         "context_packet_sha256": packet["packet_sha256"],
         "prompt_measured": {
             "bytes": prompt_bytes,
@@ -778,13 +824,33 @@ def run_codex_cli(
         "usage": usage,
         "stdout_sha256": hashlib.sha256(completed.stdout.encode()).hexdigest(),
         "stderr_sha256": hashlib.sha256(completed.stderr.encode()).hexdigest(),
+        "raw_output_bytes": len(raw_output) if raw_output is not None else None,
+        "raw_output_sha256": raw_output_sha256,
+        "parsed_output_sha256": parsed_output_sha256,
+        "reported_outcome": (
+            parsed_output.get("outcome")
+            if isinstance(parsed_output, dict)
+            and isinstance(parsed_output.get("outcome"), str)
+            else None
+        ),
+        "authoritative_outcome": authoritative_outcome,
+        "disposition": (
+            "accepted"
+            if validation_error is None
+            else "execution-failed"
+            if completed.returncode != 0 or raw_output is None
+            else "invalid-output"
+        ),
+        "validation_failure": validation_failure,
         "changed_project_paths": [],
-        "result": result,
+        "result": result if validation_error is None else None,
     }
     artifact["execution_sha256"] = _digest(artifact)
     _write_canonical_exclusive(
         root / EXECUTION_DIRECTORY / f"{execution_id}.json", artifact
     )
+    if validation_error is not None:
+        raise CodexExecutionRejected(str(validation_error), artifact)
     return artifact
 
 
@@ -897,6 +963,31 @@ def _failed_run_record(
             else 0
         ),
         "usage": primary_execution.get("usage") if primary_execution is not None else None,
+        "execution_disposition": (
+            primary_execution.get("disposition")
+            if primary_execution is not None
+            else None
+        ),
+        "authoritative_outcome": (
+            primary_execution.get("authoritative_outcome")
+            if primary_execution is not None
+            else None
+        ),
+        "raw_output_sha256": (
+            primary_execution.get("raw_output_sha256")
+            if primary_execution is not None
+            else None
+        ),
+        "parsed_output_sha256": (
+            primary_execution.get("parsed_output_sha256")
+            if primary_execution is not None
+            else None
+        ),
+        "validation_failure": (
+            primary_execution.get("validation_failure")
+            if primary_execution is not None
+            else None
+        ),
         "result": primary_execution.get("result") if primary_execution is not None else None,
     }
     review: dict[str, Any] = {
@@ -945,6 +1036,25 @@ def _failed_run_record(
         ),
         "duration_ns": review_execution.get("duration_ns", 0) if review_execution else 0,
         "usage": review_execution.get("usage") if review_execution else None,
+        "execution_disposition": (
+            review_execution.get("disposition") if review_execution else None
+        ),
+        "authoritative_outcome": (
+            review_execution.get("authoritative_outcome")
+            if review_execution
+            else None
+        ),
+        "raw_output_sha256": (
+            review_execution.get("raw_output_sha256") if review_execution else None
+        ),
+        "parsed_output_sha256": (
+            review_execution.get("parsed_output_sha256")
+            if review_execution
+            else None
+        ),
+        "validation_failure": (
+            review_execution.get("validation_failure") if review_execution else None
+        ),
         "changed_project_paths": (
             review_execution.get("changed_project_paths", []) if review_execution else []
         ),
@@ -1080,6 +1190,43 @@ def _execute_governed_task(
             executor_identity=primary_executor_identity,
             role="executor",
         )
+    except CodexExecutionRejected as execution_error:
+        primary_execution = execution_error.artifact
+        primary_evidence = (
+            f"{EXECUTION_DIRECTORY.as_posix()}/"
+            f"{primary_execution['execution_id']}.json"
+        )
+        record_error = record_invocation_outcome(
+            root,
+            primary_record["invocation_id"],
+            outcome="failed",
+            verification="failed",
+            evidence=primary_evidence,
+            context_tokens=(primary_execution.get("usage") or {}).get("input_tokens"),
+            execution_cost=None,
+        )
+        if record_error:
+            raise RuntimeError(record_error) from execution_error
+        return _failed_run_record(
+            root,
+            run_id=run_id,
+            configuration=configuration,
+            registry_warnings=registry_warnings,
+            task_id=task_id,
+            task=task,
+            capabilities=capability_values,
+            acceptance_criteria=acceptance_values,
+            approvals=approval_values,
+            phase=(
+                "primary-invalid-output"
+                if primary_execution["disposition"] == "invalid-output"
+                else "primary-execution"
+            ),
+            error=execution_error,
+            primary_packet=primary_packet,
+            primary_record=primary_record,
+            primary_execution=primary_execution,
+        )
     except (OSError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError, ValueError, RuntimeError) as execution_error:
         failure_path = (
             Path(configuration["accounting_directory"]) / f"{run_id}.json"
@@ -1111,16 +1258,14 @@ def _execute_governed_task(
             primary_record=primary_record,
         )
     primary_result = primary_execution["result"]
-    primary_outcome = (
-        "succeeded" if primary_result["outcome"] == "succeeded" else "failed"
-    )
+    primary_outcome = primary_execution["authoritative_outcome"]
     primary_evidence = (
         f"{EXECUTION_DIRECTORY.as_posix()}/{primary_execution['execution_id']}.json"
     )
     error = record_invocation_outcome(
         root,
         primary_record["invocation_id"],
-        outcome=primary_outcome,
+        outcome="succeeded" if primary_outcome == "succeeded" else "failed",
         verification=("passed" if primary_outcome == "succeeded" else "failed"),
         evidence=primary_evidence,
         context_tokens=(primary_execution.get("usage") or {}).get("input_tokens"),
@@ -1139,6 +1284,25 @@ def _execute_governed_task(
             approvals=approval_values,
             phase="primary-outcome-recording",
             error=RuntimeError(error),
+            primary_packet=primary_packet,
+            primary_record=primary_record,
+            primary_execution=primary_execution,
+        )
+    if primary_outcome != "succeeded":
+        return _failed_run_record(
+            root,
+            run_id=run_id,
+            configuration=configuration,
+            registry_warnings=registry_warnings,
+            task_id=task_id,
+            task=task,
+            capabilities=capability_values,
+            acceptance_criteria=acceptance_values,
+            approvals=approval_values,
+            phase="primary-governed-outcome",
+            error=RuntimeError(
+                f"deterministic primary outcome is {primary_outcome}; review not launched"
+            ),
             primary_packet=primary_packet,
             primary_record=primary_record,
             primary_execution=primary_execution,
@@ -1233,6 +1397,47 @@ def _execute_governed_task(
                 executor_identity=reviewer_identity,
                 role="reviewer",
             )
+        except CodexExecutionRejected as review_error:
+            review_execution = review_error.artifact
+            review_evidence = (
+                f"{EXECUTION_DIRECTORY.as_posix()}/"
+                f"{review_execution['execution_id']}.json"
+            )
+            record_error = record_invocation_outcome(
+                root,
+                review_record["invocation_id"],
+                outcome="failed",
+                verification="failed",
+                evidence=review_evidence,
+                context_tokens=(review_execution.get("usage") or {}).get(
+                    "input_tokens"
+                ),
+                execution_cost=None,
+            )
+            if record_error:
+                raise RuntimeError(record_error) from review_error
+            return _failed_run_record(
+                root,
+                run_id=run_id,
+                configuration=configuration,
+                registry_warnings=registry_warnings,
+                task_id=task_id,
+                task=task,
+                capabilities=capability_values,
+                acceptance_criteria=acceptance_values,
+                approvals=approval_values,
+                phase=(
+                    "review-invalid-output"
+                    if review_execution["disposition"] == "invalid-output"
+                    else "review-execution"
+                ),
+                error=review_error,
+                primary_packet=primary_packet,
+                primary_record=primary_record,
+                primary_execution=primary_execution,
+                review_record=review_record,
+                review_execution=review_execution,
+            )
         except (OSError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError, ValueError, RuntimeError) as review_error:
             failure_path = (
                 Path(configuration["accounting_directory"]) / f"{run_id}.json"
@@ -1313,7 +1518,7 @@ def _execute_governed_task(
             for entry in primary_result["verification"]
         ]
         review_succeeded = (
-            review_result["outcome"] == "succeeded"
+            review_execution["authoritative_outcome"] == "succeeded"
             and review_result["review_verdict"] == "approved"
             and review_agreement
         )
@@ -1407,6 +1612,11 @@ def _execute_governed_task(
             "changed_project_paths": primary_execution["changed_project_paths"],
             "duration_ns": primary_execution["duration_ns"],
             "usage": primary_execution["usage"],
+            "execution_disposition": primary_execution["disposition"],
+            "authoritative_outcome": primary_execution["authoritative_outcome"],
+            "raw_output_sha256": primary_execution["raw_output_sha256"],
+            "parsed_output_sha256": primary_execution["parsed_output_sha256"],
+            "validation_failure": primary_execution["validation_failure"],
             "result": primary_result,
         },
         "review": (
@@ -1429,6 +1639,15 @@ def _execute_governed_task(
                 "model": review_execution["model"],
                 "duration_ns": review_execution["duration_ns"],
                 "usage": review_execution["usage"],
+                "execution_disposition": review_execution["disposition"],
+                "authoritative_outcome": review_execution[
+                    "authoritative_outcome"
+                ],
+                "raw_output_sha256": review_execution["raw_output_sha256"],
+                "parsed_output_sha256": review_execution[
+                    "parsed_output_sha256"
+                ],
+                "validation_failure": review_execution["validation_failure"],
                 "changed_project_paths": review_execution["changed_project_paths"],
                 "result": review_execution["result"],
             }

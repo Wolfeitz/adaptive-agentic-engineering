@@ -4,11 +4,14 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+from typing import Any
 import unittest
 
 from aae.accounting import build_agent_skill_accounting
 from aae.cli import init_repository
 from aae.execution import (
+    _codex_result_schema,
+    _validate_result_against_packet,
     build_context_packet,
     execute_governed_task,
     governed_run_digest_is_valid,
@@ -46,14 +49,24 @@ if schema[\"properties\"][\"role\"][\"enum\"] != [role]:
 if schema[\"properties\"][\"review_verdict\"][\"enum\"] != expected_verdicts:
     raise SystemExit(\"result schema must bind role-valid review verdicts\")
 packet = json.loads(prompt.split(\"BOUNDED EVIDENCE PACKET\\n\", 1)[1])
+criterion_status = \"passed\"
+if role == \"executor\" and \"failed criterion outcome\" in packet[\"task\"]:
+    criterion_status = \"failed\"
+if role == \"executor\" and \"blocked criterion outcome\" in packet[\"task\"]:
+    criterion_status = \"blocked\"
+reported_outcome = {\"passed\": \"succeeded\", \"failed\": \"failed\", \"blocked\": \"blocked\"}[criterion_status]
+if role == \"executor\" and \"contradictory executor outcome\" in packet[\"task\"]:
+    reported_outcome = \"failed\"
+if role == \"reviewer\" and \"contradictory reviewer outcome\" in packet[\"task\"]:
+    reported_outcome = \"failed\"
 result = {
     \"role\": role,
-    \"outcome\": \"succeeded\",
+    \"outcome\": reported_outcome,
     \"review_verdict\": \"approved\" if role == \"reviewer\" else \"not-applicable\",
     \"summary\": \"bounded fixture completed\",
     \"findings\": [{\"severity\": \"info\", \"statement\": \"fixture\", \"evidence_refs\": [\"evidence.txt\"]}],
     \"verification\": [
-        {\"criterion\": criterion, \"status\": \"passed\", \"evidence_refs\": [\"evidence.txt\"]}
+        {\"criterion\": criterion, \"status\": criterion_status, \"evidence_refs\": [\"evidence.txt\"]}
         for criterion in packet[\"acceptance_criteria\"]
     ],
 }
@@ -200,6 +213,166 @@ print(json.dumps({\"type\": \"turn.completed\", \"usage\": {\"input_tokens\": 12
             )
             self.assertIn("ORIGINAL TASK", review_packet["task"])
             self.assertIn("Evidence is bounded.", review_packet["task"])
+
+    def test_deterministic_outcome_contract_and_role_schemas(self) -> None:
+        packet = {"acceptance_criteria": ["criterion-a", "criterion-b"]}
+
+        def result(statuses: tuple[str, str], outcome: str) -> dict[str, Any]:
+            return {
+                "role": "executor",
+                "outcome": outcome,
+                "review_verdict": "not-applicable",
+                "summary": "fixture",
+                "findings": [],
+                "verification": [
+                    {
+                        "criterion": criterion,
+                        "status": status,
+                        "evidence_refs": ["evidence.txt"],
+                    }
+                    for criterion, status in zip(
+                        packet["acceptance_criteria"], statuses, strict=True
+                    )
+                ],
+            }
+
+        self.assertEqual(
+            _validate_result_against_packet(
+                result(("passed", "passed"), "succeeded"), packet
+            ),
+            "succeeded",
+        )
+        self.assertEqual(
+            _validate_result_against_packet(
+                result(("passed", "failed"), "failed"), packet
+            ),
+            "failed",
+        )
+        self.assertEqual(
+            _validate_result_against_packet(
+                result(("passed", "blocked"), "blocked"), packet
+            ),
+            "blocked",
+        )
+        self.assertEqual(
+            _validate_result_against_packet(
+                result(("blocked", "failed"), "failed"), packet
+            ),
+            "failed",
+        )
+        with self.assertRaisesRegex(ValueError, "reported=failed, derived=succeeded"):
+            _validate_result_against_packet(
+                result(("passed", "passed"), "failed"), packet
+            )
+        with self.assertRaisesRegex(ValueError, "reported=succeeded, derived=failed"):
+            _validate_result_against_packet(
+                result(("passed", "failed"), "succeeded"), packet
+            )
+        missing = result(("passed", "passed"), "succeeded")
+        missing["verification"] = missing["verification"][:1]
+        with self.assertRaisesRegex(ValueError, "exactly once"):
+            _validate_result_against_packet(missing, packet)
+        malformed = result(("passed", "passed"), "succeeded")
+        malformed["verification"][1]["criterion"] = "criterion-a"
+        with self.assertRaisesRegex(ValueError, "exactly once"):
+            _validate_result_against_packet(malformed, packet)
+
+        executor_schema = _codex_result_schema("executor")
+        reviewer_schema = _codex_result_schema("reviewer")
+        self.assertEqual(
+            executor_schema["properties"]["review_verdict"]["enum"],
+            ["not-applicable"],
+        )
+        self.assertEqual(
+            reviewer_schema["properties"]["review_verdict"]["enum"],
+            ["approved", "changes-required", "blocked"],
+        )
+
+    def test_invalid_executor_output_preserves_attempt_telemetry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root)
+            run = execute_governed_task(
+                root,
+                task_id="invalid-executor-v1",
+                task="Exercise a contradictory executor outcome.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(run["failure"]["phase"], "primary-invalid-output")
+            self.assertEqual(run["primary"]["execution_disposition"], "invalid-output")
+            self.assertEqual(run["primary"]["authoritative_outcome"], None)
+            self.assertIsInstance(run["primary"]["thread_id"], str)
+            self.assertEqual(run["primary"]["usage"]["input_tokens"], 12)
+            self.assertRegex(run["primary"]["raw_output_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(run["primary"]["parsed_output_sha256"], r"^[0-9a-f]{64}$")
+            self.assertIn(
+                "reported=failed, derived=succeeded",
+                run["primary"]["validation_failure"]["message"],
+            )
+            execution_path = root / ".aae/runtime/executions" / (
+                run["primary"]["execution_id"] + ".json"
+            )
+            execution = json.loads(execution_path.read_text(encoding="utf-8"))
+            self.assertIsNone(execution["result"])
+            self.assertNotIn("raw_output", execution)
+            accounting, errors, _ = build_agent_skill_accounting(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(accounting["runtime_evidence"]["governed_run_count"], 1)
+
+    def test_contradictory_reviewer_output_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = self._project(root)
+            run = execute_governed_task(
+                root,
+                task_id="invalid-reviewer-v1",
+                task="Exercise a contradictory reviewer outcome.",
+                explicit_skill="project:engineering-qualify",
+                capabilities=("engineering-qualification",),
+                acceptance_criteria=("Evidence is bounded.",),
+                evidence_paths=(evidence,),
+            )
+
+            self.assertEqual(run["status"], "failed")
+            self.assertEqual(run["failure"]["phase"], "review-invalid-output")
+            self.assertEqual(run["primary"]["authoritative_outcome"], "succeeded")
+            self.assertEqual(run["review"]["execution_disposition"], "invalid-output")
+            self.assertIsInstance(run["review"]["thread_id"], str)
+            self.assertIsNotNone(run["review"]["validation_failure"])
+            accounting, errors, _ = build_agent_skill_accounting(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(accounting["runtime_evidence"]["governed_run_count"], 1)
+
+    def test_non_successful_primary_outcome_does_not_launch_reviewer(self) -> None:
+        for status in ("failed", "blocked"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                evidence = self._project(root)
+                run = execute_governed_task(
+                    root,
+                    task_id=f"{status}-primary-v1",
+                    task=f"Exercise a {status} criterion outcome.",
+                    explicit_skill="project:engineering-qualify",
+                    capabilities=("engineering-qualification",),
+                    acceptance_criteria=("Evidence is bounded.",),
+                    evidence_paths=(evidence,),
+                )
+
+                self.assertEqual(run["status"], "failed")
+                self.assertEqual(
+                    run["failure"]["phase"], "primary-governed-outcome"
+                )
+                self.assertEqual(run["primary"]["authoritative_outcome"], status)
+                self.assertIsNone(run["review"]["invocation_id"])
+                invocation_paths = list(
+                    (root / ".aae/runtime/invocations").glob("*.json")
+                )
+                self.assertEqual(len(invocation_paths), 1)
 
     def test_large_bounded_prompt_is_streamed_over_stdin(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
