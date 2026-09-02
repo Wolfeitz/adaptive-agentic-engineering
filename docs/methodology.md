@@ -18,6 +18,14 @@ AAE is intent-grounded, evidence-driven, spec-decomposed, verification-backed, a
 
 AAE asks what evidence, independence, expertise, model capability, human oversight, and verification the next decision requires. It then activates the minimum useful topology. Specialists are ephemeral cognitive roles, not a permanent theatrical cast.
 
+## Capability and skill fabric
+
+Workflows request capabilities rather than permanent named agents. Durable, versioned skills advertise reusable procedures that provide those capabilities. The capability router indexes machine-readable advertisements, filters them using task intent and project evidence, and exposes only a bounded candidate set. Selection grants no authority; full procedures load only after a digest-bound InvocationPlan passes policy.
+
+Invoking a skill does not require spawning an agent. The current agent, an ephemeral specialist, a deterministic executor, an independent reviewer, or a human may execute it according to consequence and independence needs. See [Capability and Skill Fabric](capability-skill-fabric.md).
+
+AAE promotes no target number of skills. A repeated procedure becomes a candidate only when it has a named outcome, explicit inputs and outputs, an independently evaluable completion contract, and sufficient stability to version. Promotion into project or enterprise scope requires explicit governance; learning may propose but cannot self-authorize it.
+
 ## Open-world intent
 
 Any Markdown placed in `.aae/intent/` is potentially meaningful. Seed documents are starting prompts, not a closed schema. Novel intent should be realized through existing, composed, or proposed capabilities. Unresolved gaps remain explicit.

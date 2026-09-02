@@ -17,10 +17,16 @@ This repository is a runnable reference bootstrap, not a claim that every part o
 - Codex and GitHub Copilot adapters;
 - an HVE Core interoperability guide;
 - model-routing, context-hygiene, and observability contracts;
+- a multi-source skill registry with portable content identities, bounded capability demand/discovery, policy-gated invocation, and durable invocation records;
+- a policy-checked capability router with explicit runtime/tool/model/data requirements;
+- a provider-neutral semantic intermediate representation with conflict and clarification gates;
+- atomic semantic releases, rollback, incremental impact graphs, and provenance-bearing task/review packets;
+- offline Azure DevOps, GitHub, and Jira payload exporters that never submit without a separate integration;
+- deterministic agents-and-skills accounting;
 - a CI workflow and standard-library test suite;
 - a bootstrap command for greenfield or existing repositories.
 
-Semantic compilation is intentionally model-agnostic. `aae compile` produces a bounded compiler request and manifest. The active agent runtime interprets that packet according to the AAE compiler contract. Later releases can add direct model-provider adapters without changing the intent plane.
+Semantic compilation is intentionally model-agnostic. `aae compile` produces a bounded compiler request and manifest. A provider may implement the `aae.semantic_providers` entry-point contract and return the versioned semantic document; `aae semantic validate` verifies that document before `aae semantic publish` atomically creates a provenance-bound release. AAE does not ship credentials or silently call a model provider.
 
 ## Quick start
 
@@ -42,6 +48,7 @@ That remains a single-prompt entry experience. The durable behavior lives in the
 
 ```text
 .aae/
+├── skills/        Versioned project skill advertisements and procedures
 ├── intent/        Human/AI-authored Markdown sources
 ├── specs/         Requirements, design, and executable task ledgers
 ├── generated/     Shared compiler-owned artifacts
@@ -63,9 +70,45 @@ Never put credentials or secrets in a `.local.md` file. Reference a credential-s
 aae init [PATH]       Install AAE into a repository without overwriting files
 aae compile [PATH]    Discover sources and prepare the semantic compiler packet
 aae validate [PATH]   Check repository and overlay hygiene
-aae watch [PATH]      Recompile when intent Markdown changes
+aae watch [PATH]      Recompile when intent or configured skill sources change
 aae doctor [PATH]     Show environment and repository diagnostics
+aae registry [PATH]   Build and inspect the normalized skill registry
+aae discover TASK     Shortlist skills from capabilities, architecture, environment, risk, and evidence gaps
+aae skill ID [PATH]   Inspect skill metadata (`--metadata-only` is required)
+aae invoke TASK       Build demand/candidates/selection/plan and load only after policy allows it
+aae outcome ID RESULT Record outcome evidence and optionally join it to an invocation ID
+aae skill-stats       Summarize consideration, selection, outcome, and cost telemetry
+aae semantic ...      Validate, inspect, publish, or roll back a semantic release
+aae task-packet ID    Read one bounded packet from the active semantic release
+aae tracker-export    Create offline Azure DevOps, GitHub, or Jira payloads
+aae tracker-submit    Submit active task packets after explicit external-write confirmation
+aae providers         List installed semantic-provider entry points
+aae accounting        Inventory skills, ephemeral roles, and deterministic authority
+aae model-route       Select an eligible configured model and fallback order
+aae retrievers        List semantic skill-retriever entry points
+aae skill-evaluate    Evaluate lifecycle evidence or emit a promotion proposal
+aae skill-graph       Export deterministic historical-use relationships
+aae ci-policy         Generate a provider-neutral CI policy payload
+aae trace-export      Export redacted OpenTelemetry-compatible invocation spans
 ```
+
+## Capability and skill fabric
+
+AAE workflows request capabilities. Versioned skills advertise reusable procedures; roles and agent instances remain runtime binding decisions. Project, enterprise, runtime, and local sources are normalized without conflating scope with trust. Discovery exposes only a bounded metadata shortlist. An integrity-bound `InvocationPlan` must satisfy source trust, approval, independence, side-effect, tool, model, platform, network, and data policy before full instructions can load. See [docs/capability-skill-fabric.md](docs/capability-skill-fabric.md).
+
+The invocation control plane evaluates source trust, approval, integrity, lifecycle, side effects, tool/model/platform/network requirements, data classification, and independence before loading a procedure. See [docs/semantic-control-plane.md](docs/semantic-control-plane.md).
+
+AAE intentionally seeds skills but no permanent theatrical agent cast. Run `aae accounting --json` or read [docs/agents-and-skills.md](docs/agents-and-skills.md) for the exact distinction.
+
+Model profiles are deliberately local configuration. Copy
+`.aae/model-profiles.local.example.json` to the ignored
+`.aae/model-profiles.json`, bind it to real approved runtimes, and use
+`aae model-route`. No example profile is treated as an installed model.
+
+`aae tracker-submit` reads credentials only from the named environment
+variable, requires `--confirm-external-write`, and never places authorization
+material in request-plan or result artifacts. Jira submissions additionally
+require a `--defaults` JSON object containing project and issue-type fields.
 
 ## HVE Core
 
@@ -73,7 +116,7 @@ AAE can use HVE Core as a VS Code execution adapter. It does not make HVE Core t
 
 ## Project status
 
-This is an initial reference bootstrap intended for experiments across Codex, VS Code/Copilot, and HVE Core. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/aae-bootstrap/` specification.
+Version 0.3 is a runnable reference control plane intended for experiments across Codex, VS Code/Copilot, and HVE Core. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
 
 ## License
 
