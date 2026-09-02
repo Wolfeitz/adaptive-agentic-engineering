@@ -115,6 +115,19 @@ CODEX_RESULT_SCHEMA: dict[str, Any] = {
 }
 
 
+def _codex_result_schema(role: str) -> dict[str, Any]:
+    if role not in {"executor", "reviewer"}:
+        raise ValueError(f"unsupported Codex execution role: {role}")
+    schema = json.loads(json.dumps(CODEX_RESULT_SCHEMA))
+    schema["properties"]["role"]["enum"] = [role]
+    schema["properties"]["review_verdict"]["enum"] = (
+        ["not-applicable"]
+        if role == "executor"
+        else ["approved", "changes-required", "blocked"]
+    )
+    return schema
+
+
 def _canonical_bytes(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -657,7 +670,7 @@ def run_codex_cli(
         workspace = Path(temporary)
         schema_path = workspace / "result-schema.json"
         result_path = workspace / "result.json"
-        schema_path.write_bytes(_canonical_bytes(CODEX_RESULT_SCHEMA) + b"\n")
+        schema_path.write_bytes(_canonical_bytes(_codex_result_schema(role)) + b"\n")
         prompt = _prompt(role=role, task=str(packet["task"]), procedure=procedure, packet=packet)
         prompt_bytes = len(prompt.encode("utf-8"))
         limits = packet["limits"]

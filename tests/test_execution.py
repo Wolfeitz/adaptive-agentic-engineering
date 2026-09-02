@@ -38,6 +38,13 @@ if sys.argv[-1] != \"-\":
     raise SystemExit(\"prompt must be streamed on stdin\")
 prompt = sys.stdin.read()
 role = \"reviewer\" if \"ROLE\\nreviewer\" in prompt else \"executor\"
+schema_path = Path(sys.argv[sys.argv.index(\"--output-schema\") + 1])
+schema = json.loads(schema_path.read_text(encoding=\"utf-8\"))
+expected_verdicts = [\"not-applicable\"] if role == \"executor\" else [\"approved\", \"changes-required\", \"blocked\"]
+if schema[\"properties\"][\"role\"][\"enum\"] != [role]:
+    raise SystemExit(\"result schema must bind the invocation role\")
+if schema[\"properties\"][\"review_verdict\"][\"enum\"] != expected_verdicts:
+    raise SystemExit(\"result schema must bind role-valid review verdicts\")
 packet = json.loads(prompt.split(\"BOUNDED EVIDENCE PACKET\\n\", 1)[1])
 result = {
     \"role\": role,
