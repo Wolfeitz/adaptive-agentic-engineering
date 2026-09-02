@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "acceptance-verify",
+  "version": "0.1.0",
+  "description": "Verify a completion contract with deterministic, runtime, and independent evidence proportional to consequence.",
+  "capabilities": ["acceptance-verification", "evidence-grading", "regression-verification", "resource-lifecycle-verification"],
+  "triggers": ["task completion", "feature verification", "defect fix", "release evidence"],
+  "applicable_when": ["acceptance-criteria-exist", "implementation-claims-complete"],
+  "inputs": ["completion-contract", "changed-behavior", "verification-evidence"],
+  "produces": ["criterion-by-criterion-verdict", "evidence-grade", "remaining-gaps"],
+  "requires": ["test-or-runtime-evidence"],
+  "may_recommend": ["runtime-diagnosis", "resource-lifecycle-check", "independent-review"],
+  "cost": {"context": "medium", "reasoning": "medium"},
+  "independence_required": false,
+  "lifecycle": "experimental",
+  "execution": {"mode": "hybrid", "side_effects": "workspace-write"},
+  "requirements": {"tools": ["test-execution"], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "optional", "data_classifications": ["public", "internal", "controlled"]},
+  "procedure": "SKILL.md"
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "bounded-context-builder",
+  "version": "0.1.0",
+  "description": "Construct a minimal provenance-aware context packet for one decision, execution task, challenge, or independent review.",
+  "capabilities": ["context-building", "context-provenance", "context-reconstruction", "review-context-building"],
+  "triggers": ["new task packet", "context reconstruction", "independent review", "large conversation"],
+  "applicable_when": ["bounded-decision", "authoritative-sources-exist", "context-budget-matters"],
+  "inputs": ["decision-or-task", "authority-sources", "evidence-gaps", "context-budget"],
+  "produces": ["bounded-context-packet", "provenance-map", "explicit-unknowns"],
+  "requires": ["targeted-source-read"],
+  "may_recommend": ["repo-recon", "independent-review"],
+  "cost": {"context": "low", "reasoning": "medium"},
+  "independence_required": false,
+  "lifecycle": "experimental",
+  "execution": {"mode": "procedural", "side_effects": "read-only"},
+  "requirements": {"tools": [], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "none", "data_classifications": ["public", "internal", "controlled"]},
+  "procedure": "SKILL.md"
+}

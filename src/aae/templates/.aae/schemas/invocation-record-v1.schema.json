@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/invocation-record-v1.schema.json",
+  "title": "AAE InvocationRecord v1",
+  "type": "object",
+  "required": ["schema_version", "invocation_id", "recorded_at", "task", "capability_demand", "registry_content_sha256", "candidate_set", "selection_decision", "invocation_plan", "runtime_instance", "status", "procedure_loaded", "execution", "outcome", "invocation_record_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "invocation_id": {"type": "string", "format": "uuid"},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "task": {"type": "object"},
+    "capability_demand": {"type": "object"},
+    "registry_content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate_set": {"type": "object"},
+    "selection_decision": {"type": "object"},
+    "invocation_plan": {"type": "object"},
+    "runtime_instance": {"type": "object"},
+    "context_evidence_sha256": {"type": ["string", "null"]},
+    "status": {"enum": ["denied", "planned", "procedure-loaded", "load-failed", "completed", "failed", "superseded"]},
+    "procedure_loaded": {"type": "boolean"},
+    "execution": {"type": ["object", "null"]},
+    "outcome": {"type": ["object", "null"]},
+    "invocation_record_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

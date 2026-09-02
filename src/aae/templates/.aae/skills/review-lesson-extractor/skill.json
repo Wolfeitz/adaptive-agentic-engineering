@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "review-lesson-extractor",
+  "version": "0.1.0",
+  "description": "Extract durable, scoped lessons and repeated-procedure candidates from completed work without silently changing authority.",
+  "capabilities": ["lesson-extraction", "lesson-classification", "skill-candidate-detection", "determinism-promotion"],
+  "triggers": ["completed review", "repeated defect", "repeated procedure", "workflow retrospective"],
+  "applicable_when": ["durable-learning-possible", "outcome-evidence-exists"],
+  "inputs": ["task-evidence", "review-findings", "outcome"],
+  "produces": ["durable-lesson-proposals", "skill-candidate-proposals", "deterministic-control-proposals"],
+  "requires": ["authoritative-outcome-evidence"],
+  "may_recommend": [],
+  "cost": {"context": "low", "reasoning": "medium"},
+  "independence_required": false,
+  "lifecycle": "experimental",
+  "execution": {"mode": "hybrid", "side_effects": "read-only"},
+  "requirements": {"tools": [], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "none", "data_classifications": ["public", "internal", "controlled"]},
+  "procedure": "SKILL.md"
+}

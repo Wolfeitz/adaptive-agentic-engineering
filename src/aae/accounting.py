@@ -1,0 +1,178 @@
+from __future__ import annotations
+
+from collections import Counter
+import json
+from pathlib import Path
+from typing import Any
+
+from .adaptive import load_model_profiles, skill_retriever_entry_points
+from .control import load_invocation_policy
+from .semantic import provider_entry_points
+from .skills import build_skill_registry
+
+
+def build_agent_skill_accounting(
+    root: Path,
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    registry, errors, warnings = build_skill_registry(root)
+    policy, policy_errors = load_invocation_policy(root)
+    errors.extend(policy_errors)
+    skills = registry.get("skills", [])
+    lifecycle_counts = Counter(str(skill["lifecycle"]) for skill in skills)
+    mode_counts = Counter(str(skill["execution"]["mode"]) for skill in skills)
+    side_effect_counts = Counter(
+        str(skill["execution"]["side_effects"]) for skill in skills
+    )
+    independent = [
+        str(skill["registry_id"])
+        for skill in skills
+        if skill.get("independence_required")
+    ]
+    invocation_counts: Counter[str] = Counter()
+    role_counts: Counter[str] = Counter()
+    invocation_directory = root / ".aae/runtime/invocations"
+    invocation_paths = (
+        sorted(invocation_directory.glob("*.json"))
+        if invocation_directory.exists()
+        else []
+    )
+    for path in invocation_paths:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            warnings.append(f"Cannot read invocation accounting record {path}: {error}")
+            continue
+        if not isinstance(record, dict):
+            warnings.append(f"Invocation accounting record is not an object: {path}")
+            continue
+        invocation_counts[str(record.get("status", "unknown"))] += 1
+        plan = record.get("invocation_plan")
+        if isinstance(plan, dict):
+            binding = plan.get("binding")
+            if isinstance(binding, dict):
+                role_counts[str(binding.get("role", "unknown"))] += 1
+    model_profiles, model_profile_errors = load_model_profiles(root)
+    configured_profiles = model_profiles.get("profiles", [])
+    if model_profile_errors and (root / ".aae/model-profiles.json").exists():
+        errors.extend(model_profile_errors)
+    accounting: dict[str, Any] = {
+        "schema_version": 1,
+        "agent_model": {
+            "persistent_named_agents": 0,
+            "runtime_agents_are_ephemeral": True,
+            "selection_rule": "A selected skill is normally executed by the current agent; a fresh independent reviewer is required only when the skill or consequence policy requires independence.",
+            "roles": [
+                {
+                    "role": "current-agent",
+                    "purpose": "Execute an allowed selected skill in the current bounded context.",
+                    "persistent": False,
+                },
+                {
+                    "role": "independent-reviewer",
+                    "purpose": "Execute independence-required review from fresh bounded evidence.",
+                    "persistent": False,
+                    "triggered_by": independent,
+                },
+                {
+                    "role": "deterministic-control-plane",
+                    "purpose": "Reserve identities, validate policy, rank candidates, persist evidence, and authorize state transitions in code rather than agent judgment.",
+                    "persistent": True,
+                    "is_agent": False,
+                },
+            ],
+        },
+        "skill_fabric": {
+            "registry_sha256": registry.get("registry_sha256"),
+            "source_count": registry.get("source_count", 0),
+            "skill_count": registry.get("skill_count", 0),
+            "capability_count": len(registry.get("capabilities", [])),
+            "lifecycle_counts": dict(sorted(lifecycle_counts.items())),
+            "execution_mode_counts": dict(sorted(mode_counts.items())),
+            "side_effect_counts": dict(sorted(side_effect_counts.items())),
+            "skills": [
+                {
+                    "registry_id": skill["registry_id"],
+                    "version": skill["version"],
+                    "capabilities": skill["capabilities"],
+                    "lifecycle": skill["lifecycle"],
+                    "execution": skill["execution"],
+                    "requirements": skill.get("requirements", {}),
+                    "independence_required": skill["independence_required"],
+                    "source_id": skill["source"]["id"],
+                    "skill_content_sha256": skill.get("skill_content_sha256"),
+                }
+                for skill in skills
+            ],
+        },
+        "authority": {
+            "invocation_policy_sha256": policy.get("policy_content_sha256"),
+            "minimum_trust": policy.get("minimum_trust"),
+            "required_source_approval": policy.get("required_source_approval"),
+            "allowed_side_effects": policy.get("allowed_side_effects"),
+            "approval_required_for": policy.get("approval_required_for"),
+            "automatic_skill_promotion": False,
+            "automatic_agent_creation": False,
+        },
+        "runtime_evidence": {
+            "invocation_count": sum(invocation_counts.values()),
+            "invocation_status_counts": dict(sorted(invocation_counts.items())),
+            "runtime_role_counts": dict(sorted(role_counts.items())),
+        },
+        "extension_points": {
+            "semantic_provider_entry_points": sorted(provider_entry_points()),
+            "skill_retriever_entry_points": sorted(skill_retriever_entry_points()),
+            "configured_model_profiles": (
+                len(configured_profiles) if isinstance(configured_profiles, list) else 0
+            ),
+        },
+        "component_accounting": [
+            {
+                "component": "intent-and-semantic-compiler",
+                "kind": "deterministic-control-plane",
+                "is_agent": False,
+            },
+            {
+                "component": "skill-registry-and-invocation-policy",
+                "kind": "deterministic-control-plane",
+                "is_agent": False,
+            },
+            {
+                "component": "model-router",
+                "kind": "deterministic-control-plane",
+                "is_agent": False,
+            },
+            {
+                "component": "semantic-provider",
+                "kind": "optional-runtime-adapter",
+                "is_agent": False,
+            },
+            {
+                "component": "semantic-skill-retriever",
+                "kind": "optional-runtime-adapter",
+                "is_agent": False,
+            },
+        ],
+        "implementation_boundaries": {
+            "implemented": [
+                "skill advertisement normalization and provenance",
+                "bounded deterministic discovery",
+                "policy-checked invocation planning",
+                "explicit procedure loading",
+                "ephemeral role binding",
+                "versioned invocation and outcome evidence",
+                "provider-neutral semantic task and review packets",
+                "deterministic model routing and fallback ordering",
+                "bounded semantic skill-retriever contract",
+                "advisory lifecycle evaluation and promotion proposals",
+                "historical-use graph",
+                "CI policy and OpenTelemetry-compatible trace exports",
+            ],
+            "not_implied": [
+                "a permanent multi-agent cast",
+                "autonomous authority promotion",
+                "configured credentials or implicit SaaS submission",
+                "distributed orchestration",
+            ],
+        },
+    }
+    return accounting, errors, warnings

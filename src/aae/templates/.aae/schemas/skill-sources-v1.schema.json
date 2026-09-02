@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/skill-sources-v1.schema.json",
+  "title": "AAE Skill Sources v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scope", "adapter", "path", "owner", "provenance", "trust", "capability_allowlist", "approval"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+          "scope": {"enum": ["enterprise", "project", "runtime", "local"]},
+          "adapter": {"enum": ["aae-json", "skill-md", "registry-json"]},
+          "path": {"type": "string", "minLength": 1},
+          "owner": {"type": "string", "minLength": 1},
+          "provenance": {"type": "string", "minLength": 1},
+          "trust": {"enum": ["untrusted", "declared", "governed"]},
+          "capability_allowlist": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "approval": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": {"enum": ["pending", "approved", "rejected"]},
+              "approved_by": {"type": ["string", "null"]},
+              "policy_version": {"type": ["string", "null"]}
+            }
+          },
+          "integrity": {
+            "type": "object",
+            "properties": {
+              "expected_content_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+              "signature": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

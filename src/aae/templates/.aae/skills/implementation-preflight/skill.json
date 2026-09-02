@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "implementation-preflight",
+  "version": "0.1.0",
+  "description": "Verify authority, scope, architecture precedent, dependency choices, impact, testing intent, and runtime ownership before editing.",
+  "capabilities": ["implementation-readiness", "pattern-reuse-analysis", "change-impact-analysis", "dependency-selection"],
+  "triggers": ["meaningful code change", "new dependency", "cross-boundary change", "shared infrastructure"],
+  "applicable_when": ["implementation-authorized", "existing-codebase"],
+  "inputs": ["bounded-task", "repository-evidence", "acceptance-criteria"],
+  "produces": ["implementation-approach", "impact-map", "verification-plan", "stop-conditions"],
+  "requires": ["repository-search", "dependency-evidence"],
+  "may_recommend": ["repo-recon", "runtime-diagnosis", "resource-lifecycle-check", "independent-review"],
+  "cost": {"context": "medium", "reasoning": "medium"},
+  "independence_required": false,
+  "lifecycle": "experimental",
+  "execution": {"mode": "hybrid", "side_effects": "read-only"},
+  "requirements": {"tools": ["filesystem-search", "version-control-read"], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "none", "data_classifications": ["public", "internal", "controlled"]},
+  "procedure": "SKILL.md"
+}

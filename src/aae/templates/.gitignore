@@ -1,5 +1,7 @@
 .aae/**/*.local.md
+.aae/**/*.local.json
 .aae/runtime/
 .aae/generated/local/
 .aae/state/local/
 *.local.md
+*.local.json

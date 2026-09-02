@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "id": "local-reasoning-example",
+      "provider": "local-runtime",
+      "model": "replace-with-real-model-id",
+      "location": "local",
+      "capabilities": ["reasoning", "structured-output"],
+      "data_classifications": ["public", "internal", "controlled"],
+      "network": "none",
+      "available": true,
+      "preference": 10,
+      "cost_rank": 10,
+      "fallback_to": []
+    }
+  ]
+}

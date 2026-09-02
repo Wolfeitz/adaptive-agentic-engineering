@@ -16,5 +16,9 @@ Before consequential work:
 10. Persist durable facts, decisions, constraints, evidence, and lessons into authoritative artifacts, then compact or discard stale working context.
 11. Honor the effective shared-plus-local workflow setting for progress telemetry. Unless disabled or specialized there, bounded long-running work should report compact phase, completed/total comparable units when meaningful, current activity, remaining work, next milestone, and blockers—without inventing percentages from elapsed time or uneven checklist items.
 12. Honor the effective testing settings. When enabled, create tests with changed behavior and regression tests for defects when practical. For resource-owning, repeated, concurrent, batched, or long-running code, evaluate repeated-operation or soak verification for leaks and incomplete cleanup. Treat coverage as diagnostic unless project intent defines a threshold. Record alternative evidence when tests are disabled or impractical.
+13. Identify capabilities needed by the current task and use `aae discover` against the normalized registry. Do not assume prior knowledge of every installed skill or preload full procedures.
+14. Inspect advertisements with `aae skill --metadata-only`. Load procedures only through `aae invoke`, which must produce an allowed, digest-bound `InvocationPlan`; selection alone is not permission.
+15. Satisfy declared independence, side-effect approval, tool, model, network, platform, and data-classification constraints. If a contract is advisory, do not imply it was enforced.
+16. Treat learned skill candidates as proposals. Do not promote them into project or enterprise authority without the configured review and approval.
 
 The active tool may generate additional runtime instructions, but generated artifacts must preserve provenance to human-readable intent.

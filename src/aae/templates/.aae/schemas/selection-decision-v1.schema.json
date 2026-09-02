@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/selection-decision-v1.schema.json",
+  "title": "AAE SelectionDecision v1",
+  "type": "object",
+  "required": ["schema_version", "candidate_set_sha256", "selected_registry_id", "selected_skill_content_sha256", "reason", "candidates_considered", "selection_decision_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "candidate_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selected_registry_id": {"type": ["string", "null"]},
+    "selected_skill_content_sha256": {"type": ["string", "null"]},
+    "reason": {"type": ["string", "null"]},
+    "candidates_considered": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["registry_id", "skill_content_sha256", "score", "selected", "reason"]
+      }
+    },
+    "selection_decision_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

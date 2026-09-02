@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "runtime-diagnosis",
+  "version": "0.1.0",
+  "description": "Establish runtime provenance, rank evidence-backed hypotheses, and run discriminating checks without confusing source edits with live state.",
+  "capabilities": ["runtime-provenance", "log-triage", "hypothesis-building", "discriminating-testing", "configuration-resolution"],
+  "triggers": ["runtime failure", "deployment mismatch", "configuration issue", "intermittent behavior", "service unhealthy"],
+  "applicable_when": ["live-runtime-exists", "observed-behavior-differs", "failure-cause-unknown"],
+  "inputs": ["reported-symptom", "expected-behavior", "runtime-access"],
+  "produces": ["runtime-provenance-map", "ranked-hypotheses", "discriminating-evidence", "diagnosis"],
+  "requires": ["process-or-container-read", "logs-or-health-evidence"],
+  "may_recommend": ["repo-recon", "implementation-preflight", "acceptance-verify"],
+  "cost": {"context": "medium", "reasoning": "high"},
+  "independence_required": false,
+  "lifecycle": "experimental",
+  "execution": {"mode": "hybrid", "side_effects": "read-only"},
+  "requirements": {"tools": ["runtime-read"], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "optional", "data_classifications": ["public", "internal", "controlled"]},
+  "procedure": "SKILL.md"
+}

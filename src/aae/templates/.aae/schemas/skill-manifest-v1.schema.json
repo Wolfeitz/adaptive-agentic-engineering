@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/skill-manifest-v1.schema.json",
+  "title": "AAE Skill Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "version", "description", "capabilities", "cost", "independence_required", "lifecycle", "execution", "requirements", "procedure"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "version": {"type": "string"},
+    "description": {"type": "string", "minLength": 1},
+    "capabilities": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "triggers": {"type": "array", "items": {"type": "string"}},
+    "applicable_when": {"type": "array", "items": {"type": "string"}},
+    "inputs": {"type": "array", "items": {"type": "string"}},
+    "produces": {"type": "array", "items": {"type": "string"}},
+    "requires": {"type": "array", "items": {"type": "string"}},
+    "may_recommend": {"type": "array", "items": {"type": "string"}},
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "reasoning"],
+      "properties": {
+        "context": {"enum": ["low", "medium", "high"]},
+        "reasoning": {"enum": ["low", "medium", "high"]}
+      }
+    },
+    "independence_required": {"type": "boolean"},
+    "lifecycle": {"enum": ["candidate", "experimental", "validated", "project", "enterprise", "deprecated", "retired"]},
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "side_effects"],
+      "properties": {
+        "mode": {"enum": ["deterministic", "procedural", "agentic", "hybrid"]},
+        "side_effects": {"enum": ["read-only", "workspace-write", "external-write", "destructive"]}
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools", "model_capabilities", "platforms", "network", "data_classifications"],
+      "properties": {
+        "tools": {"type": "array", "items": {"type": "string"}},
+        "model_capabilities": {"type": "array", "items": {"type": "string"}},
+        "platforms": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "network": {"enum": ["none", "optional", "required"]},
+        "data_classifications": {"type": "array", "minItems": 1, "items": {"enum": ["public", "internal", "controlled", "restricted"]}}
+      }
+    },
+    "procedure": {"type": "string", "minLength": 1}
+  }
+}

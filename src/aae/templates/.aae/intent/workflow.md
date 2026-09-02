@@ -4,6 +4,8 @@
 
 Use evidence-driven, context-aware, plan-before-execution practices appropriate to the risk and complexity of the work.
 
+For each bounded task, identify needed capabilities and use registry discovery rather than relying on prior knowledge of installed skills. Select the smallest relevant set, load only selected procedures, and create an ephemeral specialist only when expertise or independence warrants it. Candidate generation may propose reusable procedures, but skill promotion requires project governance.
+
 ## Progress telemetry
 
 **Progress telemetry:** on

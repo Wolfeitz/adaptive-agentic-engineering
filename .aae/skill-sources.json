@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "starter",
+      "scope": "project",
+      "adapter": "aae-json",
+      "path": "src/aae/templates/.aae/skills",
+      "owner": "aae-project",
+      "provenance": "repository",
+      "trust": "governed",
+      "capability_allowlist": ["*"],
+      "approval": {
+        "status": "approved",
+        "approved_by": "aae-project-policy",
+        "policy_version": "1"
+      }
+    }
+  ]
+}
