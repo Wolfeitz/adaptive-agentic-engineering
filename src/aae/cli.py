@@ -16,6 +16,7 @@ from typing import Any, Iterable, cast
 from . import __version__
 from .accounting import build_agent_skill_accounting
 from .control import invoke_skill, record_invocation_outcome
+from .criteria import combine_criteria
 from .integrations import submit_tracker_items
 from .hooks import HOOKS_PATH, load_hook_config, parse_payload_values, process_event
 from .skills import (
@@ -137,6 +138,7 @@ def compiler_request(
         "12. Treat skill invocation and specialist creation as separate decisions; roles are ephemeral and skills are reusable procedures.",
         "13. Record selected skill registry IDs and versions in execution evidence.",
         "14. Honor enabled hooks as simple event-to-skill or event-to-check rules.",
+        "15. Keep acceptance authority explicit: agents report semantic criteria; configured direct checks provide deterministic-control results.",
         "",
         "## Sources in effective order",
         "",
@@ -551,16 +553,47 @@ def invoke_repository(
     fresh_context: bool,
     tools: Iterable[str],
     approvals: Iterable[str],
+    acceptance_criteria: Iterable[str],
+    control_check_ids: Iterable[str],
+    review_of_invocation_id: str | None,
     candidate_limit: int,
     limit: int,
     as_json: bool,
 ) -> int:
+    hook_config, hook_errors = load_hook_config(root)
+    if hook_errors:
+        for error in hook_errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    rules_by_id = {
+        str(rule["id"]): rule
+        for rule in hook_config["rules"]
+        if isinstance(rule, dict) and "id" in rule
+    }
+    control_rules: list[dict[str, Any]] = []
+    for rule_id in control_check_ids:
+        rule = rules_by_id.get(rule_id)
+        if rule is None:
+            print(f"ERROR: Deterministic hook check not found: {rule_id}", file=sys.stderr)
+            return 1
+        if not rule.get("enabled", True):
+            print(f"ERROR: Deterministic hook check is disabled: {rule_id}", file=sys.stderr)
+            return 1
+        if "run_check" not in rule:
+            print(f"ERROR: Hook rule is not a deterministic check: {rule_id}", file=sys.stderr)
+            return 1
+        control_rules.append(rule)
+    try:
+        criteria = combine_criteria(acceptance_criteria, control_rules)
+    except ValueError as criterion_error:
+        print(f"ERROR: {criterion_error}", file=sys.stderr)
+        return 1
     registry, errors, warnings = build_skill_registry(root)
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
     if errors:
-        for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
+        for registry_error in errors:
+            print(f"ERROR: {registry_error}", file=sys.stderr)
         return 1
     write_json(root / RUNTIME_DIRECTORY / "skill-registry.json", registry)
     runtime_profile = {
@@ -584,6 +617,8 @@ def invoke_repository(
         runtime_profile=runtime_profile,
         candidate_limit=candidate_limit,
         shortlist_limit=limit,
+        criteria=criteria,
+        review_of_invocation_id=review_of_invocation_id,
     )
     for candidate in record["candidates"]:
         record_skill_event(
@@ -627,8 +662,8 @@ def invoke_repository(
         if procedure is not None:
             print("\n--- selected procedure ---\n")
             print(procedure, end="" if procedure.endswith("\n") else "\n")
-    for error in invocation_errors:
-        print(f"ERROR: {error}", file=sys.stderr)
+    for invocation_error in invocation_errors:
+        print(f"ERROR: {invocation_error}", file=sys.stderr)
     return 0 if record["status"] == "procedure-loaded" else 1
 
 
@@ -643,6 +678,7 @@ def emit_event_repository(
     tools: Iterable[str],
     approvals: Iterable[str],
     as_json: bool,
+    for_invocation_id: str | None,
 ) -> int:
     payload, payload_errors = parse_payload_values(payload_values)
     if payload_errors:
@@ -662,6 +698,7 @@ def emit_event_repository(
         idempotency_key=idempotency_key,
         parent_event_id=parent_event_id,
         chain_depth=chain_depth,
+        for_invocation_id=for_invocation_id,
     )
     output = {"hook_event_record": record, "procedures": procedures}
     if as_json:
@@ -698,6 +735,8 @@ def record_outcome(
     evidence: str | None,
     invocation_id: str | None = None,
     verification: str | None = None,
+    criterion_result_values: Iterable[str] = (),
+    control_event_ids: Iterable[str] = (),
 ) -> int:
     registry, errors, warnings = build_skill_registry(root)
     for warning in warnings:
@@ -706,6 +745,43 @@ def record_outcome(
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
+    _, identifier_error = resolve_skill_metadata(registry, identifier)
+    if identifier_error:
+        print(f"ERROR: {identifier_error}", file=sys.stderr)
+        return 1
+    control_events = tuple(control_event_ids)
+    semantic_results: dict[str, str] = {}
+    for value in criterion_result_values:
+        status, separator, statement = value.partition(":")
+        if not separator or status not in {"passed", "failed", "blocked"} or not statement:
+            print(
+                "ERROR: Criterion results use STATUS:STATEMENT with status "
+                "passed, failed, or blocked",
+                file=sys.stderr,
+            )
+            return 1
+        if statement in semantic_results:
+            print(f"ERROR: Duplicate criterion result: {statement}", file=sys.stderr)
+            return 1
+        semantic_results[statement] = status
+    if (semantic_results or control_events) and not invocation_id:
+        print("ERROR: Criterion results require --invocation-id", file=sys.stderr)
+        return 1
+    if invocation_id:
+        invocation_error = record_invocation_outcome(
+            root,
+            invocation_id,
+            outcome=outcome,
+            verification=verification,
+            evidence=evidence,
+            context_tokens=context_tokens,
+            execution_cost=execution_cost,
+            semantic_results=semantic_results,
+            control_event_ids=control_events,
+        )
+        if invocation_error:
+            print(f"ERROR: {invocation_error}", file=sys.stderr)
+            return 1
     event_error = record_skill_event(
         root,
         registry,
@@ -718,19 +794,6 @@ def record_outcome(
     if event_error:
         print(f"ERROR: {event_error}", file=sys.stderr)
         return 1
-    if invocation_id:
-        invocation_error = record_invocation_outcome(
-            root,
-            invocation_id,
-            outcome=outcome,
-            verification=verification,
-            evidence=evidence,
-            context_tokens=context_tokens,
-            execution_cost=execution_cost,
-        )
-        if invocation_error:
-            print(f"ERROR: {invocation_error}", file=sys.stderr)
-            return 1
     print(f"Recorded {outcome} outcome for {identifier}.")
     return 0
 
@@ -752,7 +815,8 @@ def skill_stats(root: Path, as_json: bool = False) -> int:
         print(
             f"- {versioned_id}: considered={summary['considered']} "
             f"selected={summary['selected']} succeeded={summary['succeeded']} "
-            f"failed={summary['failed']} superseded={summary['superseded']} "
+            f"failed={summary['failed']} blocked={summary['blocked']} "
+            f"superseded={summary['superseded']} "
             f"selection_rate={summary['selection_rate']} failure_rate={summary['failure_rate']} "
             f"context_tokens={summary['context_tokens']} execution_cost={summary['execution_cost']}"
         )
@@ -938,6 +1002,20 @@ def accounting_repository(root: Path, as_json: bool) -> int:
         print(
             f"- {skill['registry_id']}@{skill['version']}: {capabilities}"
         )
+    evidence = accounting["runtime_evidence"]
+    print("Criterion authority:")
+    print(
+        "- declared: "
+        + json.dumps(evidence["criterion_authority_counts"], sort_keys=True)
+    )
+    print(
+        "- evaluated: "
+        + json.dumps(evidence["criterion_result_counts"], sort_keys=True)
+    )
+    print(
+        "- combined outcomes: "
+        + json.dumps(evidence["combined_result_counts"], sort_keys=True)
+    )
     return 0
 
 
@@ -991,6 +1069,14 @@ def parser() -> argparse.ArgumentParser:
     invoke.add_argument("--fresh-context", action="store_true")
     invoke.add_argument("--tool", action="append", default=[])
     invoke.add_argument("--approval", action="append", default=[])
+    invoke.add_argument("--acceptance", action="append", default=[])
+    invoke.add_argument(
+        "--control-check",
+        action="append",
+        default=[],
+        help="Enabled run_check hook rule whose result is authoritative",
+    )
+    invoke.add_argument("--review-of")
     invoke.add_argument("--candidate-limit", type=_positive_int, default=18)
     invoke.add_argument("--limit", type=_positive_int, default=4)
     invoke.add_argument("--json", action="store_true")
@@ -1005,17 +1091,30 @@ def parser() -> argparse.ArgumentParser:
     event.add_argument("--fresh-context", action="store_true")
     event.add_argument("--tool", action="append", default=[])
     event.add_argument("--approval", action="append", default=[])
+    event.add_argument(
+        "--for-invocation",
+        help="Bind deterministic check evidence to one invocation",
+    )
     event.add_argument("--json", action="store_true")
 
     outcome = commands.add_parser("outcome")
     outcome.add_argument("identifier")
-    outcome.add_argument("outcome", choices=("succeeded", "failed", "superseded"))
+    outcome.add_argument(
+        "outcome", choices=("succeeded", "failed", "blocked", "superseded")
+    )
     outcome.add_argument("path", nargs="?", default=".")
     outcome.add_argument("--context-tokens", type=int)
     outcome.add_argument("--execution-cost", type=float)
     outcome.add_argument("--evidence")
     outcome.add_argument("--invocation-id")
     outcome.add_argument("--verification", choices=("passed", "failed", "blocked"))
+    outcome.add_argument(
+        "--criterion-result",
+        action="append",
+        default=[],
+        help="Semantic result as STATUS:STATEMENT",
+    )
+    outcome.add_argument("--control-event", action="append", default=[])
 
     stats = commands.add_parser("skill-stats")
     stats.add_argument("path", nargs="?", default=".")
@@ -1124,6 +1223,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.fresh_context,
             arguments.tool,
             arguments.approval,
+            arguments.acceptance,
+            arguments.control_check,
+            arguments.review_of,
             arguments.candidate_limit,
             arguments.limit,
             arguments.json,
@@ -1140,6 +1242,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.tool,
             arguments.approval,
             arguments.json,
+            arguments.for_invocation,
         )
     if arguments.command == "outcome":
         return record_outcome(
@@ -1151,6 +1254,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.evidence,
             arguments.invocation_id,
             arguments.verification,
+            arguments.criterion_result,
+            arguments.control_event,
         )
     if arguments.command == "skill-stats":
         return skill_stats(root, arguments.json)

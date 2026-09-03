@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -35,6 +36,57 @@ class AccountingTests(unittest.TestCase):
                 roles,
                 {"current-agent", "independent-reviewer", "deterministic-control-plane"},
             )
+
+    def test_accounting_reconciles_v1_and_criterion_v2_records(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repository(root)
+            invocation_directory = root / ".aae/runtime/invocations"
+            invocation_directory.mkdir(parents=True)
+            (invocation_directory / "old.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "status": "completed",
+                        "outcome": {"result": "succeeded"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (invocation_directory / "new.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "status": "blocked",
+                        "criteria": [
+                            {"authority": "semantic-executor"},
+                            {"authority": "deterministic-control"},
+                        ],
+                        "outcome": {
+                            "result": "blocked",
+                            "combined_result": "blocked",
+                            "criterion_results": [
+                                {"result": "passed"},
+                                {"result": "blocked"},
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            accounting, errors, warnings = build_agent_skill_accounting(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(warnings, [])
+            evidence = accounting["runtime_evidence"]
+            self.assertEqual(evidence["invocation_schema_counts"], {"1": 1, "2": 1})
+            self.assertEqual(
+                evidence["criterion_authority_counts"],
+                {"deterministic-control": 1, "semantic-executor": 1},
+            )
+            self.assertEqual(
+                evidence["criterion_result_counts"], {"blocked": 1, "passed": 1}
+            )
+            self.assertEqual(evidence["combined_result_counts"], {"blocked": 1})
 
 
 if __name__ == "__main__":

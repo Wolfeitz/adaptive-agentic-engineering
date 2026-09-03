@@ -10,6 +10,11 @@ Reusable procedures live under `skills/` as a small `skill.json` advertisement p
 
 Deterministic event rules live in `hooks.json`. Seed examples are disabled. Each enabled rule maps an event and optional path globs to one requested skill or one direct check. Emit normalized events with `aae event`; HTTP webhooks and CI callbacks remain transport adapters.
 
+`aae invoke --acceptance` binds semantic criteria. `--control-check RULE_ID`
+binds an enabled direct-check hook as deterministic acceptance. Run that event
+with `--for-invocation INVOCATION_ID`, then join its event ID when recording the
+outcome. AAE derives failed, blocked, or succeeded from the criterion evidence.
+
 Run `aae compile` after intent or skill changes or use `aae watch`. Compiler-owned local state, including the normalized skill registry, appears in `runtime/` and must not be committed.
 
 When a semantic provider produces a schema-v1 JSON document, validate it with `aae semantic validate` and publish it with `aae semantic publish`. Published content-addressed releases, task packets, review packets, impact deltas, and provenance appear under `generated/releases/`. Use `aae invoke` for skill selection and basic safety checks, and `aae accounting` to inspect the resulting agent/skill model.

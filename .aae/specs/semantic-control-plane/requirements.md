@@ -8,3 +8,4 @@
 - **SCP-REQ-006:** Preserve durable invocation and outcome provenance without treating telemetry as authority.
 - **SCP-REQ-007:** Export tracker payloads offline and gate credentialed submission behind explicit HTTPS and external-write authority without persisting credentials.
 - **SCP-REQ-008:** Provide an executable accounting of durable skills, ephemeral agent roles, and deterministic authority.
+- **SCP-REQ-009:** Assign acceptance criteria to semantic or deterministic authority, derive combined outcomes from evidence, preserve blocked state, and gate independent review without exposing it to the primary verdict.

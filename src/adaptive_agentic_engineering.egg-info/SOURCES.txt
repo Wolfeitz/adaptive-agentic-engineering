@@ -5,6 +5,7 @@ src/aae/__main__.py
 src/aae/accounting.py
 src/aae/cli.py
 src/aae/control.py
+src/aae/criteria.py
 src/aae/hooks.py
 src/aae/integrations.py
 src/aae/semantic.py
@@ -33,6 +34,7 @@ src/aae/templates/.aae/intent/workflow.local.example.md
 src/aae/templates/.aae/intent/workflow.md
 src/aae/templates/.aae/schemas/hook-config-v1.schema.json
 src/aae/templates/.aae/schemas/invocation-record-v1.schema.json
+src/aae/templates/.aae/schemas/invocation-record-v2.schema.json
 src/aae/templates/.aae/schemas/skill-manifest-v1.schema.json
 src/aae/templates/.aae/schemas/skill-sources-v1.schema.json
 src/aae/templates/.aae/skills/acceptance-verify/SKILL.md

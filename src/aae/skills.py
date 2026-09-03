@@ -18,7 +18,7 @@ SKILL_EVENT_DIRECTORY = Path(".aae/runtime/skill-events")
 
 ADAPTERS = {"aae-json", "skill-md", "registry-json"}
 SCOPES = {"enterprise", "project", "local"}
-EVENT_TYPES = {"considered", "selected", "succeeded", "failed", "superseded"}
+EVENT_TYPES = {"considered", "selected", "succeeded", "failed", "blocked", "superseded"}
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
@@ -491,7 +491,7 @@ def summarize_skill_events(root: Path, registry: dict[str, Any]) -> tuple[dict[s
         key = f"{event.get('registry_id')}@{event.get('version')}"
         summary = summaries.setdefault(key, {
             "registry_id": event.get("registry_id"), "version": event.get("version"),
-            "considered": 0, "selected": 0, "succeeded": 0, "failed": 0,
+            "considered": 0, "selected": 0, "succeeded": 0, "failed": 0, "blocked": 0,
             "superseded": 0, "context_tokens": 0, "execution_cost": 0.0,
         })
         if event.get("event") in EVENT_TYPES:

@@ -13,6 +13,7 @@
       "enabled": false,
       "on": "files-changed",
       "paths": ["src/**/*.py", "tests/**/*.py"],
+      "criterion": "The Python test suite passes.",
       "run_check": ["python", "-m", "unittest", "discover", "-s", "tests"]
     }
   ]

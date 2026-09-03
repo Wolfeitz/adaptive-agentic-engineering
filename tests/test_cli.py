@@ -88,7 +88,7 @@ class AaeCliTests(unittest.TestCase):
             self.assertTrue((root / ".aae/skill-sources.local.example.json").exists())
             self.assertTrue((root / ".aae/skills/repo-recon/skill.json").exists())
             schemas = sorted((root / ".aae/schemas").glob("*.schema.json"))
-            self.assertEqual(len(schemas), 4)
+            self.assertEqual(len(schemas), 5)
             for schema_path in schemas:
                 schema = json.loads(schema_path.read_text(encoding="utf-8"))
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")

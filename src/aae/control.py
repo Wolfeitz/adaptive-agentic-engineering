@@ -6,9 +6,10 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 import uuid
 
+from .criteria import evaluate_criteria, executor_criteria, validate_criteria
 from .skills import discover_skills, load_skill_instructions, resolve_skill_metadata
 
 
@@ -54,10 +55,17 @@ def invoke_skill(
     candidate_limit: int = 18,
     shortlist_limit: int = 4,
     trigger_provenance: dict[str, Any] | None = None,
+    criteria: Iterable[dict[str, Any]] = (),
+    review_of_invocation_id: str | None = None,
 ) -> tuple[dict[str, Any], str | None, list[str]]:
-    """Discover one skill, enforce v1 safety checks, then load its procedure."""
+    """Discover one skill, enforce basic safety checks, then load its procedure."""
     profile = runtime_profile or {}
     errors: list[str] = []
+    criterion_specs = list(criteria)
+    try:
+        validate_criteria(criterion_specs)
+    except ValueError as criterion_error:
+        errors.append(str(criterion_error))
     capabilities = [value.strip() for value in explicit_capabilities if value.strip()]
     discovery = discover_skills(
         registry,
@@ -74,17 +82,17 @@ def invoke_skill(
     selected: dict[str, Any] | None = None
     reason = "no matching skill"
     if explicit_skill:
-        selected, error = resolve_skill_metadata(registry, explicit_skill)
-        if error:
-            errors.append(error)
+        selected, resolve_error = resolve_skill_metadata(registry, explicit_skill)
+        if resolve_error:
+            errors.append(resolve_error)
         else:
             reason = "explicitly requested"
     elif discovery["shortlist"]:
-        selected, error = resolve_skill_metadata(
+        selected, resolve_error = resolve_skill_metadata(
             registry, discovery["shortlist"][0]["registry_id"]
         )
-        if error:
-            errors.append(error)
+        if resolve_error:
+            errors.append(resolve_error)
         else:
             reason = "best advertisement match"
 
@@ -117,10 +125,27 @@ def invoke_skill(
         if not independence_allowed:
             rejections.append("fresh-context-required")
 
+        if selected.get("independence_required", False):
+            review_allowed, review_reason, review_identity = _review_prerequisite(
+                root, review_of_invocation_id
+            )
+            checks.append(
+                {
+                    "check": "review-prerequisite",
+                    "passed": review_allowed,
+                    "review_of": review_identity,
+                }
+            )
+            if not review_allowed:
+                rejections.append(review_reason)
+        elif review_of_invocation_id is not None:
+            checks.append({"check": "review-prerequisite", "passed": False})
+            rejections.append("review-target-requires-independent-skill")
+
     decision = "allowed" if selected is not None and not rejections and not errors else "denied"
     invocation_id = str(uuid.uuid4())
     record: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "invocation_id": invocation_id,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "task": {"identity": task_id, "spec_identity": spec_id, "intent": task},
@@ -142,6 +167,9 @@ def invoke_skill(
             "rejection_reasons": rejections,
         },
         "context_evidence_sha256": context_evidence_sha256,
+        "criteria": criterion_specs,
+        "executor_criteria": executor_criteria(criterion_specs),
+        "review_of_invocation_id": review_of_invocation_id,
         "trigger_provenance": trigger_provenance,
         "status": "planned" if decision == "allowed" else "denied",
         "procedure_loaded": False,
@@ -199,9 +227,11 @@ def record_invocation_outcome(
     evidence: str | None,
     context_tokens: int | None,
     execution_cost: float | None,
+    semantic_results: Mapping[str, str] | None = None,
+    control_event_ids: Iterable[str] = (),
 ) -> str | None:
-    if outcome not in {"succeeded", "failed", "superseded"}:
-        return "Invocation outcome must be succeeded, failed, or superseded"
+    if outcome not in {"succeeded", "failed", "blocked", "superseded"}:
+        return "Invocation outcome must be succeeded, failed, blocked, or superseded"
     if context_tokens is not None and context_tokens < 0:
         return "Context tokens must be non-negative"
     if execution_cost is not None and execution_cost < 0:
@@ -215,10 +245,44 @@ def record_invocation_outcome(
         return f"Cannot read invocation record: {error}"
     if record.get("status") not in {"procedure-loaded", "completed", "failed"}:
         return f"Invocation {invocation_id} was not eligible for execution"
+    criterion_results: list[dict[str, Any]] = []
+    combined_result: str | None = None
+    criteria = record.get("criteria", [])
+    if criteria and outcome != "superseded":
+        if not isinstance(criteria, list):
+            return "Invocation criteria are invalid"
+        try:
+            criterion_results, combined_result = evaluate_criteria(
+                root,
+                criteria,
+                invocation_id=invocation_id,
+                semantic_results=semantic_results or {},
+                evidence=evidence,
+                control_event_ids=control_event_ids,
+            )
+        except ValueError as error:
+            return str(error)
+        if outcome != combined_result:
+            return (
+                f"Invocation outcome contradicts criterion result: "
+                f"reported={outcome}, derived={combined_result}"
+            )
+        expected_verification = {
+            "succeeded": "passed",
+            "failed": "failed",
+            "blocked": "blocked",
+        }[combined_result]
+        if verification is not None and verification != expected_verification:
+            return (
+                "Verification contradicts criterion result: "
+                f"reported={verification}, derived={expected_verification}"
+            )
     record["outcome"] = {
         "result": outcome,
         "verification": verification,
         "evidence": evidence,
+        "criterion_results": criterion_results,
+        "combined_result": combined_result,
         "context_tokens": context_tokens,
         "execution_cost": execution_cost,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -228,6 +292,8 @@ def record_invocation_outcome(
         if outcome == "succeeded"
         else "superseded"
         if outcome == "superseded"
+        else "blocked"
+        if outcome == "blocked"
         else "failed"
     )
     record["invocation_record_sha256"] = _digest(
@@ -239,3 +305,42 @@ def record_invocation_outcome(
     )
     _write_json(path, record)
     return None
+
+
+def _review_prerequisite(
+    root: Path, invocation_id: str | None
+) -> tuple[bool, str, dict[str, Any] | None]:
+    if invocation_id is None:
+        return False, "review-target-required", None
+    path = root / INVOCATION_DIRECTORY / f"{invocation_id}.json"
+    if not path.is_file():
+        return False, "review-target-not-found", {"invocation_id": invocation_id}
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False, "review-target-invalid", {"invocation_id": invocation_id}
+    expected_digest = _digest(
+        {
+            key: value
+            for key, value in record.items()
+            if key not in {"recorded_at", "invocation_record_sha256"}
+        }
+    )
+    identity = {
+        "invocation_id": invocation_id,
+        "invocation_record_sha256": record.get("invocation_record_sha256"),
+    }
+    if record.get("invocation_record_sha256") != expected_digest:
+        return False, "review-target-integrity-failed", identity
+    outcome = record.get("outcome")
+    allowed = (
+        record.get("status") == "completed"
+        and isinstance(outcome, dict)
+        and outcome.get("result") == "succeeded"
+        and outcome.get("combined_result") in {None, "succeeded"}
+    )
+    return (
+        (True, "", identity)
+        if allowed
+        else (False, "review-target-not-succeeded", identity)
+    )

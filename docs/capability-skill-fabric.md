@@ -80,4 +80,24 @@ V1 intentionally has a small safety boundary:
 
 Invocation records persist the task, advertisement shortlist, selected skill, safety decision, content digests, trigger provenance, and eventual outcome under `.aae/runtime/invocations/`. Those records support debugging and later improvement; they are not a policy language.
 
+## Criterion authority
+
+An invocation may bind two deliberately small kinds of acceptance criterion:
+
+- `semantic-executor`: a statement assessed by the active agent from bounded evidence;
+- `deterministic-control`: an enabled hook `run_check` whose recorded exit status is evaluated by AAE.
+
+Each criterion has a content-derived ID and named evaluator. Each result records
+its authority, evidence digest, and responsible invocation or hook identity.
+AAE exposes only the semantic projection as `executor_criteria`; control
+criteria never ask a model to grade its own enforcement.
+
+The combined result is deterministic: any failure means `failed`; otherwise
+missing or unavailable proof means `blocked`; otherwise the result is
+`succeeded`. A reported outcome that contradicts this result is rejected.
+
+Independent-review skills additionally require `--review-of INVOCATION_ID`.
+The target must have succeeded, but its verdict is not copied into reviewer
+context. This is gating, not a new policy system or an automatic agent launcher.
+
 AAE does not automatically create skills or agents from observed behavior. When people notice a repeated procedure, they can turn it into a skill. Automatic suggestions, semantic reranking, graphs, and lifecycle governance remain future enhancements that must be justified by real use.

@@ -19,6 +19,7 @@ This repository is a runnable reference bootstrap, not a claim that every part o
 - context-hygiene and observability guidance;
 - a multi-source skill registry with small advertisements, bounded matching, basic enforceable safety checks, and durable invocation records;
 - simple `on` / `paths` hooks that request one skill or run one deterministic check;
+- explicit semantic-versus-deterministic criterion authority with evidence-bound outcomes;
 - a provider-neutral semantic intermediate representation with conflict and clarification gates;
 - atomic semantic releases, rollback, incremental impact graphs, and provenance-bearing task/review packets;
 - offline Azure DevOps, GitHub, and Jira payload exporters that never submit without a separate integration;
@@ -76,9 +77,9 @@ aae doctor [PATH]     Show environment and repository diagnostics
 aae registry [PATH]   Build and inspect the normalized skill registry
 aae discover TASK     Shortlist skills from capabilities, architecture, environment, risk, and evidence gaps
 aae skill ID [PATH]   Inspect skill metadata (`--metadata-only` is required)
-aae invoke TASK       Match or select a skill, check tools/approval/context, and load it
+aae invoke TASK       Match a skill, bind acceptance/control checks, and load it safely
 aae event EVENT       Apply simple event-to-skill or event-to-check hooks
-aae outcome ID RESULT Record outcome evidence and optionally join it to an invocation ID
+aae outcome ID RESULT Record evidence and derive any criterion-governed invocation result
 aae skill-stats       Summarize consideration, selection, outcome, and cost telemetry
 aae semantic ...      Validate, inspect, publish, or roll back a semantic release
 aae task-packet ID    Read one bounded packet from the active semantic release
@@ -93,6 +94,13 @@ aae accounting        Inventory skills, ephemeral roles, and deterministic autho
 Skills advertise what they are good for. AAE searches those advertisements, exposes the smallest useful shortlist, checks required tools plus destructive approval or fresh-context requirements, and only then loads the selected procedure. Roles remain ephemeral; reusable skills remain durable. See [docs/capability-skill-fabric.md](docs/capability-skill-fabric.md).
 
 Hooks provide literal “X happens, do Y” routing: an event can request one skill or run one configured deterministic check. See [docs/hooks-and-events.md](docs/hooks-and-events.md).
+
+Acceptance statements supplied with `aae invoke --acceptance` are evaluated by
+the semantic executor. Checks named with `--control-check` must be enabled
+`run_check` hooks; their actual hook records are the deterministic evidence.
+AAE combines those results with failure taking precedence over blocked, and
+blocked taking precedence over success. It does not accept arbitrary
+model-authored “control” verdicts.
 
 AAE intentionally seeds skills but no permanent theatrical agent cast. Run `aae accounting --json` or read [docs/agents-and-skills.md](docs/agents-and-skills.md) for the exact distinction.
 

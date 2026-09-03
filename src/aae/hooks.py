@@ -13,6 +13,7 @@ from typing import Any, Iterable
 import uuid
 
 from .control import invoke_skill
+from .criteria import hook_control_criterion
 from .skills import build_skill_registry
 
 
@@ -68,7 +69,7 @@ def load_hook_config(root: Path) -> tuple[dict[str, Any], list[str]]:
             continue
         allowed = {
             "id", "enabled", "on", "paths", "request_skill", "run_check",
-            "task", "destructive", "timeout_seconds",
+            "task", "criterion", "destructive", "timeout_seconds",
         }
         unknown = sorted(set(rule) - allowed)
         if unknown:
@@ -96,6 +97,10 @@ def load_hook_config(root: Path) -> tuple[dict[str, Any], list[str]]:
             errors.append(f"{location}.run_check must be a non-empty argv list")
         if "task" in rule and (not isinstance(rule["task"], str) or not rule["task"].strip()):
             errors.append(f"{location}.task must be non-empty text")
+        if "criterion" in rule and (
+            not isinstance(rule["criterion"], str) or not rule["criterion"].strip()
+        ):
+            errors.append(f"{location}.criterion must be non-empty text")
         if not isinstance(rule.get("destructive", False), bool):
             errors.append(f"{location}.destructive must be true or false")
         timeout = rule.get("timeout_seconds", 300)
@@ -128,12 +133,21 @@ def process_event(
     idempotency_key: str | None = None,
     parent_event_id: str | None = None,
     chain_depth: int = 0,
+    for_invocation_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """Apply simple `X happens -> request a skill or run a check` rules."""
     profile = runtime_profile or {}
     config, errors = load_hook_config(root)
-    input_sha256 = _digest({"event": event, "payload": payload})
-    record_key = _digest({"event": event, "idempotency_key": idempotency_key or str(uuid.uuid4())})
+    input_sha256 = _digest(
+        {"event": event, "payload": payload, "for_invocation_id": for_invocation_id}
+    )
+    record_key = _digest(
+        {
+            "event": event,
+            "for_invocation_id": for_invocation_id,
+            "idempotency_key": idempotency_key or str(uuid.uuid4()),
+        }
+    )
     record_path = root / HOOK_RECORD_DIRECTORY / f"{record_key}.json"
     if idempotency_key and record_path.exists():
         try:
@@ -151,6 +165,7 @@ def process_event(
         "event_id": str(uuid.uuid4()),
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "event": event,
+        "for_invocation_id": for_invocation_id,
         "input_sha256": input_sha256,
         "idempotency_key": idempotency_key,
         "parent_event_id": parent_event_id,
@@ -210,11 +225,24 @@ def process_event(
                     if procedure is not None:
                         procedures[invocation["invocation_id"]] = procedure
                 else:
+                    criterion = hook_control_criterion(rule)
                     destructive = bool(rule.get("destructive", False))
                     if destructive and "destructive" not in set(profile.get("approvals", [])):
                         record["actions"].append({
                             "rule_id": rule["id"], "action": "run-check",
                             "status": "denied", "reason": "destructive-approval-required",
+                            "criterion": criterion,
+                            "criterion_result": {
+                                **criterion,
+                                "result": "blocked",
+                                "supporting_evidence_sha256": None,
+                                "responsible_identity": {
+                                    "kind": "deterministic-hook",
+                                    "event_id": record["event_id"],
+                                    "rule_id": rule["id"],
+                                    "invocation_id": for_invocation_id,
+                                },
+                            },
                         })
                         continue
                     try:
@@ -222,17 +250,43 @@ def process_event(
                             rule["run_check"], cwd=root, capture_output=True,
                             text=True, timeout=rule.get("timeout_seconds", 300), check=False,
                         )
-                        record["actions"].append({
+                        action = {
                             "rule_id": rule["id"], "action": "run-check",
                             "argv": rule["run_check"], "exit_code": result.returncode,
                             "status": "passed" if result.returncode == 0 else "failed",
                             "stdout_sha256": hashlib.sha256(result.stdout.encode()).hexdigest(),
                             "stderr_sha256": hashlib.sha256(result.stderr.encode()).hexdigest(),
-                        })
+                            "criterion": criterion,
+                        }
+                        evidence_sha256 = _digest(action)
+                        action["criterion_result"] = {
+                            **criterion,
+                            "result": "passed" if result.returncode == 0 else "failed",
+                            "supporting_evidence_sha256": evidence_sha256,
+                            "responsible_identity": {
+                                "kind": "deterministic-hook",
+                                "event_id": record["event_id"],
+                                "rule_id": rule["id"],
+                                "invocation_id": for_invocation_id,
+                            },
+                        }
+                        record["actions"].append(action)
                     except (OSError, subprocess.TimeoutExpired) as error:
                         errors.append(f"{rule['id']}: check failed to run: {error}")
                         record["actions"].append({
-                            "rule_id": rule["id"], "action": "run-check", "status": "error"
+                            "rule_id": rule["id"], "action": "run-check", "status": "error",
+                            "criterion": criterion,
+                            "criterion_result": {
+                                **criterion,
+                                "result": "blocked",
+                                "supporting_evidence_sha256": None,
+                                "responsible_identity": {
+                                    "kind": "deterministic-hook",
+                                    "event_id": record["event_id"],
+                                    "rule_id": rule["id"],
+                                    "invocation_id": for_invocation_id,
+                                },
+                            },
                         })
             if record["actions"]:
                 statuses = {action["status"] for action in record["actions"]}

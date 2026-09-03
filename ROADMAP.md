@@ -16,9 +16,10 @@
 - [x] Enterprise, project, and local source scopes without implicit replacement
 - [x] Enforced tool, destructive-approval, and fresh-context checks before procedure loading
 - [x] Durable invocation and verified outcome records
-- [x] Four small v1 JSON Schemas and two-version CI matrix
+- [x] Versioned JSON Schemas and two-version CI matrix
 - [x] `on` / `paths` hooks that request one skill or run one deterministic check
 - [x] Hook idempotency and durable trigger provenance
+- [x] Evidence-bound semantic/control criterion authority and reviewer gating
 
 ## Phase 1 — Semantic compiler
 

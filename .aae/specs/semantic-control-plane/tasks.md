@@ -29,3 +29,9 @@
 - **Status:** verified
 - **Requirements:** SCP-REQ-007, SCP-REQ-008
 - **Evidence:** three offline tracker shapes, confirmation-gated injected live transport, token-redaction tests, and seeded-project accounting.
+
+## SCP-T-006 — Criterion authority
+
+- **Status:** verified
+- **Requirements:** SCP-REQ-009
+- **Evidence:** semantic/control projection, hook-proof evaluation, failure/blocked aggregation, contradiction rejection, reviewer gating, and invocation-schema compatibility tests.

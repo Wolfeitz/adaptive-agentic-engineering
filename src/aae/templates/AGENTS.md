@@ -21,5 +21,6 @@ Before consequential work:
 15. Treat agents as ephemeral executors and skills as durable procedures. Selecting a skill does not automatically create a specialist.
 16. Do not automatically create or promote skills from observed behavior. Package a repeated procedure only through an explicit project decision.
 17. Honor enabled `.aae/hooks.json` rules. A hook requests one skill or runs one configured check when its event and optional path globs match. Preserve idempotency and trigger provenance.
+18. Keep criterion authority explicit. Agents assess only semantic criteria; configured hook checks provide deterministic-control results. Do not invent or self-report a control result, and do not start an independent review unless its target invocation succeeded.
 
 The active tool may generate additional runtime instructions, but generated artifacts must preserve provenance to human-readable intent.

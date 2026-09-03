@@ -14,6 +14,10 @@ def build_agent_skill_accounting(
     registry, errors, warnings = build_skill_registry(root)
     skills = registry.get("skills", [])
     invocation_counts: Counter[str] = Counter()
+    invocation_schema_counts: Counter[str] = Counter()
+    criterion_authority_counts: Counter[str] = Counter()
+    criterion_result_counts: Counter[str] = Counter()
+    combined_result_counts: Counter[str] = Counter()
     invocation_directory = root / ".aae/runtime/invocations"
     for path in sorted(invocation_directory.glob("*.json")) if invocation_directory.exists() else []:
         try:
@@ -22,6 +26,26 @@ def build_agent_skill_accounting(
             warnings.append(f"Cannot read invocation accounting record {path}: {error}")
             continue
         invocation_counts[str(record.get("status", "unknown"))] += 1
+        invocation_schema_counts[str(record.get("schema_version", "unknown"))] += 1
+        criteria = record.get("criteria", [])
+        if isinstance(criteria, list):
+            for criterion in criteria:
+                if isinstance(criterion, dict):
+                    criterion_authority_counts[
+                        str(criterion.get("authority", "unknown"))
+                    ] += 1
+        outcome = record.get("outcome")
+        if isinstance(outcome, dict):
+            combined = outcome.get("combined_result")
+            if combined is not None:
+                combined_result_counts[str(combined)] += 1
+            results = outcome.get("criterion_results", [])
+            if isinstance(results, list):
+                for result in results:
+                    if isinstance(result, dict):
+                        criterion_result_counts[
+                            str(result.get("result", "unknown"))
+                        ] += 1
     capabilities = sorted(
         {capability for skill in skills for capability in skill.get("capabilities", [])}
     )
@@ -77,6 +101,12 @@ def build_agent_skill_accounting(
         "runtime_evidence": {
             "invocation_count": sum(invocation_counts.values()),
             "invocation_status_counts": dict(sorted(invocation_counts.items())),
+            "invocation_schema_counts": dict(sorted(invocation_schema_counts.items())),
+            "criterion_authority_counts": dict(
+                sorted(criterion_authority_counts.items())
+            ),
+            "criterion_result_counts": dict(sorted(criterion_result_counts.items())),
+            "combined_result_counts": dict(sorted(combined_result_counts.items())),
         },
         "extension_points": {"configured_model_profiles": 0},
         "component_accounting": [
