@@ -6,6 +6,8 @@ Use evidence-driven, context-aware, plan-before-execution practices appropriate 
 
 For each bounded task, identify needed capabilities and use registry discovery rather than relying on prior knowledge of installed skills. Select the smallest relevant set, load only selected procedures, and create an ephemeral specialist only when expertise or independence warrants it. Candidate generation may propose reusable procedures, but skill promotion requires project governance.
 
+Use `.aae/hooks.json` when an observable event should deterministically deny, require approval, record evidence, or request a capability. Keep seeded examples disabled until deliberately adopted. A hook decides when; a skill defines how; an agent is only an optional executor.
+
 ## Progress telemetry
 
 **Progress telemetry:** on

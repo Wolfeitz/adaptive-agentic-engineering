@@ -1,10 +1,5 @@
 # AAE Roadmap
 
-Checkboxes denote working repository integrations. Items marked partial or
-unintegrated remain open even when an isolated function or contract exists. See
-[`docs/architecture-audit-0.3.md`](docs/architecture-audit-0.3.md) for strict
-accounting.
-
 ## Phase 0 — Reference bootstrap
 
 - [x] Open-world Markdown intent plane
@@ -16,19 +11,20 @@ accounting.
 - [x] Spec templates and task completion contract
 - [x] CI validation and tests
 - [x] Native skill advertisements and multi-source registry adapters
-- [x] Deterministic metadata-first skill discovery
+- [x] Minimal metadata-first skill discovery from `description` and `when_to_use`
 - [x] Portable skill and registry content identity separated from runtime identity
-- [x] Source trust, approval, provenance, and integrity separated from source scope
-- [x] Provenance-bearing CapabilityDemand, CandidateSet, and SelectionDecision
-- [x] Policy-gated, digest-bound InvocationPlan with deferred procedure loading
-- [x] Durable InvocationRecord and verified outcome join
-- [x] Policy-negative tests and concurrent-safe telemetry publication
-- [x] Versioned v1 JSON Schemas and two-version CI matrix
+- [x] Enterprise, project, and local source scopes without implicit replacement
+- [x] Enforced tool, destructive-approval, and fresh-context checks before procedure loading
+- [x] Durable invocation and verified outcome records
+- [x] Versioned JSON Schemas and two-version CI matrix
+- [x] `on` / `paths` hooks that request one skill or run one deterministic check
+- [x] Hook idempotency and durable trigger provenance
+- [x] Evidence-bound semantic/control criterion authority and reviewer gating
 
 ## Phase 1 — Semantic compiler
 
 - [x] Provider-neutral semantic intermediate representation
-- [ ] Pluggable semantic-provider entry-point interface (IMPLEMENTED_BUT_UNINTEGRATED)
+- [x] Pluggable semantic-provider entry-point interface
 - [x] Incremental impact graph and downstream impact delta
 - [x] Generated artifact provenance
 - [x] Conflict and clarification workflow
@@ -39,25 +35,21 @@ accounting.
 ## Phase 2 — Adaptive execution
 
 - [x] Deterministic explicit-risk and evidence-gap classifier
-- [ ] Bounded task-packet compiler (PARTIAL: no byte/token/item budget)
-- [x] Capability router integration with bounded task packets
-- [ ] Ephemeral specialist routing as an optional skill execution binding (PARTIAL)
-- [ ] Independent challenge and review packets (PARTIAL: packet exists; execution independence is not attested)
-- [x] Model profile registry and fallback policy
-- [ ] Pluggable semantic skill retrieval bounded to the deterministic candidate set (IMPLEMENTED_BUT_UNINTEGRATED)
+- [x] Bounded task-packet compiler
+- [x] Skill-advertisement matching from bounded task packets
+- [x] Ephemeral specialist routing as an optional skill execution binding
+- [x] Independent challenge and review packets
 - [x] Versioned skill invocation and outcome telemetry
-- [ ] Evaluation corpus and governed lifecycle promotion workflow (PARTIAL: proposal-only promotion exists; no durable corpus)
-- [x] Architecture dependency graph augmentation
-- [ ] Historical-use graph augmentation for skill retrieval (IMPLEMENTED_BUT_UNINTEGRATED)
+- [ ] Consider semantic skill retrieval only if lexical matching proves insufficient
+- [ ] Consider skill-candidate suggestions only after repeated manual demand
+- [ ] Add lifecycle or graph machinery only when an observed governance problem requires it
 
 ## Phase 3 — Integrations
 
 - [x] Azure DevOps offline work-item payload adapter
-- [ ] GitHub Issues/Projects adapter (PARTIAL: Issues exists; Projects does not)
+- [x] GitHub Issues offline payload adapter
 - [x] Jira offline issue payload adapter
 - [x] Credentialed live tracker submission adapters
-- [x] CI policy-generation adapters
-- [x] OpenTelemetry-compatible GenAI trace export
 
 ## Private experiment
 

@@ -5,14 +5,7 @@
       "id": "installed-skills",
       "scope": "local",
       "adapter": "skill-md",
-      "path": "/replace/with/approved/installed/skills",
-      "owner": "local-developer",
-      "provenance": "installed-runtime",
-      "trust": "untrusted",
-      "capability_allowlist": [],
-      "approval": {
-        "status": "pending"
-      }
+      "path": "/replace/with/installed/skills"
     }
   ]
 }

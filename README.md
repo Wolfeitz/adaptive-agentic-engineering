@@ -16,14 +16,14 @@ This repository is a runnable reference bootstrap, not a claim that every part o
 - requirements → design → task specification templates;
 - Codex and GitHub Copilot adapters;
 - an HVE Core interoperability guide;
-- model-routing, context-hygiene, and observability contracts;
-- a multi-source skill registry with portable content identities, bounded capability demand/discovery, policy-gated invocation, and durable invocation records;
-- a policy-checked capability router with explicit runtime/tool/model/data requirements;
+- context-hygiene and observability guidance;
+- a multi-source skill registry with small advertisements, bounded matching, basic enforceable safety checks, and durable invocation records;
+- thin Codex and GitHub Copilot native-hook adapters backed by portable `on` / `paths` rules that request one skill or run one deterministic check;
+- explicit semantic-versus-deterministic criterion authority with evidence-bound outcomes;
 - a provider-neutral semantic intermediate representation with conflict and clarification gates;
 - atomic semantic releases, rollback, incremental impact graphs, and provenance-bearing task/review packets;
 - offline Azure DevOps, GitHub, and Jira payload exporters that never submit without a separate integration;
 - deterministic agents-and-skills accounting;
-- bounded governed execution through an explicit Codex CLI adapter, with a separate-process review path;
 - a CI workflow and standard-library test suite;
 - a bootstrap command for greenfield or existing repositories.
 
@@ -50,6 +50,7 @@ That remains a single-prompt entry experience. The durable behavior lives in the
 ```text
 .aae/
 ├── skills/        Versioned project skill advertisements and procedures
+├── hooks.json     Deterministic event/action rules (seed examples disabled)
 ├── intent/        Human/AI-authored Markdown sources
 ├── specs/         Requirements, design, and executable task ledgers
 ├── generated/     Shared compiler-owned artifacts
@@ -76,8 +77,10 @@ aae doctor [PATH]     Show environment and repository diagnostics
 aae registry [PATH]   Build and inspect the normalized skill registry
 aae discover TASK     Shortlist skills from capabilities, architecture, environment, risk, and evidence gaps
 aae skill ID [PATH]   Inspect skill metadata (`--metadata-only` is required)
-aae invoke TASK       Build demand/candidates/selection/plan and load only after policy allows it
-aae outcome ID RESULT Record outcome evidence and optionally join it to an invocation ID
+aae invoke TASK       Match a skill, bind acceptance/control checks, and load it safely
+aae event EVENT       Apply simple event-to-skill or event-to-check hooks
+aae native-hook HOST  Adapt one Codex/Copilot native hook payload from stdin
+aae outcome ID RESULT Record evidence and derive any criterion-governed invocation result
 aae skill-stats       Summarize consideration, selection, outcome, and cost telemetry
 aae semantic ...      Validate, inspect, publish, or roll back a semantic release
 aae task-packet ID    Read one bounded packet from the active semantic release
@@ -85,40 +88,22 @@ aae tracker-export    Create offline Azure DevOps, GitHub, or Jira payloads
 aae tracker-submit    Submit active task packets after explicit external-write confirmation
 aae providers         List installed semantic-provider entry points
 aae accounting        Inventory skills, ephemeral roles, and deterministic authority
-aae governed-run      Execute one policy-authorized skill from a bounded evidence packet
-aae model-route       Select an eligible configured model and fallback order
-aae retrievers        List semantic skill-retriever entry points
-aae skill-evaluate    Evaluate lifecycle evidence or emit a promotion proposal
-aae skill-graph       Export deterministic historical-use relationships
-aae ci-policy         Generate a provider-neutral CI policy payload
-aae trace-export      Export redacted OpenTelemetry-compatible invocation spans
 ```
 
 ## Capability and skill fabric
 
-AAE workflows request capabilities. Versioned skills advertise reusable procedures; roles and agent instances remain runtime binding decisions. Project, enterprise, runtime, and local sources are normalized without conflating scope with trust. Discovery exposes only a bounded metadata shortlist. An integrity-bound `InvocationPlan` must satisfy source trust, approval, independence, side-effect, tool, model, platform, network, and data policy before full instructions can load. See [docs/capability-skill-fabric.md](docs/capability-skill-fabric.md).
+Skills advertise what they are good for. AAE searches those advertisements, exposes the smallest useful shortlist, checks required tools plus destructive approval or fresh-context requirements, and only then loads the selected procedure. Roles remain ephemeral; reusable skills remain durable. See [docs/capability-skill-fabric.md](docs/capability-skill-fabric.md).
 
-The invocation control plane evaluates source trust, approval, integrity, lifecycle, side effects, tool/model/platform/network requirements, data classification, and independence before loading a procedure. See [docs/semantic-control-plane.md](docs/semantic-control-plane.md).
+Hooks provide literal “X happens, do Y” routing: Codex or Copilot supplies the native lifecycle event, and AAE can request one skill or run one configured deterministic check. `aae event` remains available for CI, webhooks, and runtimes without a native lifecycle. See [docs/hooks-and-events.md](docs/hooks-and-events.md).
+
+Acceptance statements supplied with `aae invoke --acceptance` are evaluated by
+the semantic executor. Checks named with `--control-check` must be enabled
+`run_check` hooks; their actual hook records are the deterministic evidence.
+AAE combines those results with failure taking precedence over blocked, and
+blocked taking precedence over success. It does not accept arbitrary
+model-authored “control” verdicts.
 
 AAE intentionally seeds skills but no permanent theatrical agent cast. Run `aae accounting --json` or read [docs/agents-and-skills.md](docs/agents-and-skills.md) for the exact distinction.
-
-`aae governed-run` is the narrow 0.3 execution proof: AAE builds and persists
-the demand, candidate set, selection, policy decision, invocation plan, bounded
-evidence packet, executor result, and optional independent-review result before
-publishing a canonical run record. The only bundled semantic execution adapter
-is noninteractive `codex exec`; projects must explicitly configure its command,
-model, policy authorization, packet limits, and review behavior. See
-[docs/governed-execution.md](docs/governed-execution.md).
-
-Governed acceptance criteria have explicit evaluator authority. `--acceptance`
-assigns a criterion to the semantic executor; `--control-acceptance` assigns a
-runtime-boundary criterion to deterministic AAE control. The reviewer launches
-only after their combined pre-review outcome succeeds.
-
-Model profiles are deliberately local configuration. Copy
-`.aae/model-profiles.local.example.json` to the ignored
-`.aae/model-profiles.json`, bind it to real approved runtimes, and use
-`aae model-route`. No example profile is treated as an installed model.
 
 `aae tracker-submit` reads credentials only from the named environment
 variable, requires `--confirm-external-write`, and never places authorization
@@ -131,10 +116,7 @@ AAE can use HVE Core as a VS Code execution adapter. It does not make HVE Core t
 
 ## Project status
 
-Version 0.3 is a runnable reference control plane intended for experiments
-across Codex, VS Code/Copilot, and HVE Core. See the strict
-[AAE 0.3 architecture audit](docs/architecture-audit-0.3.md),
-[ROADMAP.md](ROADMAP.md), and the repository's own `.aae/specs/` contracts.
+Version 0.3 is a runnable reference control plane intended for experiments across Codex, VS Code/Copilot, and HVE Core. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
 
 ## License
 

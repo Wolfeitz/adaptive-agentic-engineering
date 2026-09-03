@@ -1,19 +1,9 @@
 {
   "schema_version": 1,
   "name": "repo-recon",
-  "version": "0.1.0",
   "description": "Build bounded repository context by locating authority, architecture, environment, ownership, precedents, and current state before consequential work.",
   "capabilities": ["project-discovery", "repository-reconnaissance", "authority-discovery", "environment-discovery", "ownership-mapping"],
-  "triggers": ["unfamiliar repository", "existing project", "architecture change", "runtime change"],
-  "applicable_when": ["repository-present", "project-history-matters"],
-  "inputs": ["task-or-question", "project-root"],
-  "produces": ["bounded-repository-evidence", "authority-map", "unresolved-evidence-gaps"],
-  "requires": ["filesystem-search", "version-control-read"],
-  "may_recommend": ["bounded-context-builder", "implementation-preflight", "runtime-diagnosis"],
-  "cost": {"context": "medium", "reasoning": "medium"},
-  "independence_required": false,
-  "lifecycle": "experimental",
-  "execution": {"mode": "hybrid", "side_effects": "read-only"},
-  "requirements": {"tools": ["filesystem-search", "version-control-read"], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "none", "data_classifications": ["public", "internal", "controlled"]},
+  "when_to_use": ["unfamiliar repository", "existing project", "architecture change", "runtime change"],
+  "requires_tools": ["filesystem-search", "version-control-read"],
   "procedure": "SKILL.md"
 }

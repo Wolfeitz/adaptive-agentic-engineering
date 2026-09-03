@@ -1,19 +1,9 @@
 {
   "schema_version": 1,
   "name": "resource-lifecycle-check",
-  "version": "0.1.0",
   "description": "Analyze creation, ownership, repetition, cancellation, shutdown, and cleanup for concurrent or long-running resources and define verification that exposes leaks.",
   "capabilities": ["concurrency-analysis", "resource-lifecycle-analysis", "cancellation-safety", "shutdown-verification", "resource-lifecycle-verification"],
-  "triggers": ["background worker", "worker pool", "concurrency", "persistent worker", "long-running process", "subscription", "timer", "socket", "gpu resource"],
-  "applicable_when": ["asyncio", "resource-owning-code", "repeated-operation", "shutdown-semantics-unknown", "cancellation-path"],
-  "inputs": ["proposed-or-changed-lifecycle", "ownership-boundaries", "runtime-environment"],
-  "produces": ["lifecycle-map", "cleanup-risks", "cancellation-and-shutdown-tests", "resource-stability-evidence-plan"],
-  "requires": ["implementation-path", "runtime-or-test-observability"],
-  "may_recommend": ["runtime-diagnosis", "acceptance-verify", "independent-review"],
-  "cost": {"context": "medium", "reasoning": "high"},
-  "independence_required": false,
-  "lifecycle": "experimental",
-  "execution": {"mode": "hybrid", "side_effects": "read-only"},
-  "requirements": {"tools": ["filesystem-read"], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "none", "data_classifications": ["public", "internal", "controlled"]},
+  "when_to_use": ["background worker", "worker pool", "concurrency", "persistent worker", "long-running process", "subscription", "timer", "socket", "gpu resource"],
+  "requires_tools": ["filesystem-read"],
   "procedure": "SKILL.md"
 }

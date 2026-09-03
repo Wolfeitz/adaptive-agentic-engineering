@@ -20,11 +20,15 @@ AAE asks what evidence, independence, expertise, model capability, human oversig
 
 ## Capability and skill fabric
 
-Workflows request capabilities rather than permanent named agents. Durable, versioned skills advertise reusable procedures that provide those capabilities. The capability router indexes machine-readable advertisements, filters them using task intent and project evidence, and exposes only a bounded candidate set. Selection grants no authority; full procedures load only after a digest-bound InvocationPlan passes policy.
+Workflows use reusable skills rather than permanent named agents. AAE indexes small advertisements, matches them against the task, and exposes only a bounded shortlist. Full procedures load only after the basic checks AAE can actually enforce: required tools, destructive approval, and fresh context for independence.
 
 Invoking a skill does not require spawning an agent. The current agent, an ephemeral specialist, a deterministic executor, an independent reviewer, or a human may execute it according to consequence and independence needs. See [Capability and Skill Fabric](capability-skill-fabric.md).
 
-AAE promotes no target number of skills. A repeated procedure becomes a candidate only when it has a named outcome, explicit inputs and outputs, an independently evaluable completion contract, and sufficient stability to version. Promotion into project or enterprise scope requires explicit governance; learning may propose but cannot self-authorize it.
+AAE promotes no target number of skills. When people repeatedly perform the same stable procedure and decide it is worth preserving, they can package it as a skill. AAE does not automatically create or promote skills in v1.
+
+## Hooks and event rules
+
+Hooks use the smallest useful rule: `event -> request one skill` or `event -> run one deterministic check`. Optional path globs handle obvious file-based triggers. Checks execute an explicit argument list without a shell; destructive checks require approval. Idempotency and small internal bounds prevent duplicate or recursive fan-out. See [Hooks and Events](hooks-and-events.md).
 
 ## Open-world intent
 

@@ -15,27 +15,16 @@ from typing import Any, Iterable, cast
 
 from . import __version__
 from .accounting import build_agent_skill_accounting
-from .adaptive import (
-    build_ci_policy,
-    build_historical_use_graph,
-    build_otel_genai_trace_export,
-    build_promotion_proposal,
-    evaluate_skill_lifecycle,
-    route_model,
-    skill_retriever_entry_points,
-)
-from .control import (
-    POLICY_PATH,
-    invoke_skill,
-    load_invocation_policy,
-    record_invocation_outcome,
-)
-from .execution import (
-    EXECUTION_CONFIG,
-    execute_governed_task,
-    load_execution_configuration,
-)
+from .control import invoke_skill, record_invocation_outcome
+from .criteria import combine_criteria
 from .integrations import submit_tracker_items
+from .hooks import (
+    HOOKS_PATH,
+    load_hook_config,
+    parse_payload_values,
+    process_event,
+    process_native_hook,
+)
 from .skills import (
     LOCAL_SKILL_SOURCES,
     SKILL_DIRECTORY,
@@ -62,6 +51,7 @@ from .semantic import (
 INTENT_DIRECTORY = Path(".aae/intent")
 RUNTIME_DIRECTORY = Path(".aae/runtime")
 STATE_DIRECTORY = Path(".aae/state")
+MAX_NATIVE_HOOK_PAYLOAD_BYTES = 1_048_576
 
 
 def sha256(path: Path) -> str:
@@ -132,6 +122,7 @@ def compiler_request(
     root: Path,
     sources: list[dict[str, Any]],
     registry: dict[str, Any],
+    hook_config: dict[str, Any],
 ) -> str:
     lines = [
         "# AAE Semantic Compiler Request",
@@ -150,9 +141,11 @@ def compiler_request(
         "8. Do not treat Markdown as enforcement. Identify CI, administrative, policy, or platform controls needed for enforcement.",
         "9. Generate or update only artifacts affected by semantic changes; explain removals and conflicts.",
         "10. Never copy secrets or sensitive payload content into generated telemetry or context packets.",
-        "11. Workflows request capabilities. Discover registered skills with bounded metadata before loading any full skill procedure.",
-        "12. Treat skill invocation and specialist creation as separate decisions; use an ephemeral role only when specialization or independence warrants it.",
-        "13. Record selected skill registry IDs and versions in execution evidence. Do not route candidate, deprecated, or retired skills automatically.",
+        "11. Before starting work, search the registered skill advertisements and load only the smallest useful set.",
+        "12. Treat skill invocation and specialist creation as separate decisions; roles are ephemeral and skills are reusable procedures.",
+        "13. Record selected skill registry IDs and versions in execution evidence.",
+        "14. Honor enabled hooks as simple event-to-skill or event-to-check rules.",
+        "15. Keep acceptance authority explicit: agents report semantic criteria; configured direct checks provide deterministic-control results.",
         "",
         "## Sources in effective order",
         "",
@@ -169,7 +162,14 @@ def compiler_request(
             f"- Advertised capabilities: {len(registry['capabilities'])}",
             f"- Portable registry identity: `{str(registry['registry_content_sha256'])[:12]}`",
             "- Registry path: `.aae/runtime/skill-registry.json`",
-            "- Use `aae discover` to obtain a bounded shortlist. Load full instructions with `aae skill` only after selection.",
+            "- Use `aae discover` for a small shortlist and `aae invoke` to apply basic safety checks before loading instructions.",
+            "",
+            "## Hooks and event rules",
+            "",
+            f"- Configured rules: {len(hook_config['rules'])}",
+            f"- Enabled rules: {sum(bool(rule.get('enabled', True)) for rule in hook_config['rules'])}",
+            f"- Hook config identity: `{canonical_digest(hook_config)[:12]}`",
+            "- Hooks do one thing: request a skill or run a configured check.",
         ]
     )
     lines.extend(
@@ -230,6 +230,16 @@ def compile_repository(root: Path, quiet: bool = False) -> int:
         print("Skill registry compilation failed.", file=sys.stderr)
         return 1
 
+    hook_config, hook_errors = load_hook_config(root)
+    if hook_errors and (root / HOOKS_PATH).exists():
+        for error in hook_errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        print("Hook configuration compilation failed.", file=sys.stderr)
+        return 1
+    if hook_errors and not quiet:
+        for warning in hook_errors:
+            print(f"WARNING: {warning}")
+
     manifest = {
         "schema_version": 2,
         "project_root": str(root.resolve()),
@@ -241,11 +251,20 @@ def compile_repository(root: Path, quiet: bool = False) -> int:
             "registry_sha256": registry["registry_sha256"],
             "registry_content_sha256": registry["registry_content_sha256"],
         },
+        "hook_rules": {
+            "rule_count": len(hook_config["rules"]),
+            "enabled_rule_count": sum(
+                bool(rule.get("enabled", True)) for rule in hook_config["rules"]
+            ),
+            "hook_config_sha256": canonical_digest(hook_config),
+        },
     }
     write_json(root / RUNTIME_DIRECTORY / "effective-sources.json", manifest)
     write_json(root / RUNTIME_DIRECTORY / "skill-registry.json", registry)
     request_path = root / RUNTIME_DIRECTORY / "compiler-request.md"
-    request_path.write_text(compiler_request(root, sources, registry), encoding="utf-8")
+    request_path.write_text(
+        compiler_request(root, sources, registry, hook_config), encoding="utf-8"
+    )
     if not quiet:
         shared = sum(not bool(source["local"]) for source in sources)
         local = len(sources) - shared
@@ -302,17 +321,11 @@ def validate_repository(root: Path) -> int:
     if int(registry["skill_count"]) == 0:
         warnings.append("No skills are registered; capability discovery will return no candidates.")
 
-    _, policy_errors = load_invocation_policy(root)
-    if (root / POLICY_PATH).exists():
-        errors.extend(policy_errors)
+    _, hook_errors = load_hook_config(root)
+    if (root / HOOKS_PATH).exists():
+        errors.extend(hook_errors)
     else:
-        warnings.extend(policy_errors)
-
-    if (root / EXECUTION_CONFIG).exists():
-        try:
-            load_execution_configuration(root, require_effective_executor=False)
-        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-            errors.append(f"Governed execution configuration is invalid: {error}")
+        warnings.extend(hook_errors)
 
     required_gitignore = ["*.local.md", "*.local.json", ".aae/runtime/"]
     gitignore = root / ".gitignore"
@@ -339,7 +352,11 @@ def watched_state(root: Path) -> tuple[tuple[str, str], ...]:
     if skill_root.exists():
         paths.update(path for path in skill_root.rglob("*") if path.is_file())
     paths.update(watched_skill_paths(root))
-    for config in (root / SKILL_SOURCES, root / LOCAL_SKILL_SOURCES):
+    for config in (
+        root / SKILL_SOURCES,
+        root / LOCAL_SKILL_SOURCES,
+        root / HOOKS_PATH,
+    ):
         if config.is_file():
             paths.add(config)
     return tuple(
@@ -357,14 +374,17 @@ def watched_state(root: Path) -> tuple[tuple[str, str], ...]:
 
 def watch_repository(root: Path, interval: float) -> int:
     previous: tuple[tuple[str, str], ...] | None = None
-    print(f"Watching AAE intent and configured skill sources under {root}; press Ctrl+C to stop.")
+    print(
+        f"Watching AAE intent, policy, hooks, and configured skill sources under {root}; "
+        "press Ctrl+C to stop."
+    )
     try:
         while True:
             current = watched_state(root)
             if current != previous:
                 compile_repository(root, quiet=previous is not None)
                 if previous is not None:
-                    print("Intent or skill change detected; compiler request refreshed.")
+                    print("AAE source or control change detected; compiler request refreshed.")
                 previous = current
             time.sleep(interval)
     except KeyboardInterrupt:
@@ -383,6 +403,13 @@ def doctor(root: Path) -> int:
     print(f"Registered skills: {registry['skill_count']}")
     print(f"Advertised capabilities: {len(registry['capabilities'])}")
     print(f"Portable registry identity: {registry['registry_content_sha256']}")
+    hook_config, hook_errors = load_hook_config(root)
+    if not hook_errors:
+        print(
+            "Hook rules: "
+            f"{sum(bool(rule.get('enabled', True)) for rule in hook_config['rules'])} enabled / "
+            f"{len(hook_config['rules'])} configured"
+        )
     return validate_repository(root)
 
 
@@ -408,9 +435,7 @@ def registry_repository(root: Path, as_json: bool = False) -> int:
         capabilities = ", ".join(skill["capabilities"])
         print(
             f"- {skill['registry_id']}@{skill['version']} "
-            f"[{skill['lifecycle']}; {skill['source']['scope']}; "
-            f"trust={skill['source']['trust']}; "
-            f"approval={skill['source']['approval']['status']}] -> {capabilities}"
+            f"[{skill['source']['scope']}] -> {capabilities}"
         )
     return 0
 
@@ -449,18 +474,25 @@ def discover_repository(
         limit=limit,
     )
     for skill in result["shortlist"]:
-        matched = skill["matched"]
         reason = "; ".join(
-            f"{field}={','.join(values)}"
-            for field, values in matched.items()
-            if values
+            filter(
+                None,
+                (
+                    "capabilities=" + ",".join(skill["matched_capabilities"])
+                    if skill["matched_capabilities"]
+                    else "",
+                    "terms=" + ",".join(skill["matched_terms"])
+                    if skill["matched_terms"]
+                    else "",
+                ),
+            )
         )
         record_skill_event(
             root,
             registry,
             str(skill["registry_id"]),
             "considered",
-            reason=reason or "bounded-relevance-shortlist",
+            reason=reason or "advertisement-match",
         )
     if as_json:
         print(json.dumps(result, indent=2))
@@ -494,8 +526,8 @@ def show_skill(
         return 1
     if not metadata_only:
         print(
-            "ERROR: Direct procedure loading is disabled; use 'aae invoke' so an "
-            "InvocationPlan can authorize the load",
+            "ERROR: Direct procedure loading is disabled; use 'aae invoke' so "
+            "basic safety checks run before the procedure is loaded",
             file=sys.stderr,
         )
         return 1
@@ -527,39 +559,56 @@ def invoke_repository(
     context_digest: str | None,
     fresh_context: bool,
     tools: Iterable[str],
-    model_capabilities: Iterable[str],
-    model: str | None,
-    provider: str | None,
-    network_available: bool,
-    data_classification: str,
-    model_data_classifications: Iterable[str],
     approvals: Iterable[str],
-    platform: str,
+    acceptance_criteria: Iterable[str],
+    control_check_ids: Iterable[str],
+    review_of_invocation_id: str | None,
     candidate_limit: int,
     limit: int,
     as_json: bool,
 ) -> int:
+    hook_config, hook_errors = load_hook_config(root)
+    if hook_errors:
+        for error in hook_errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    rules_by_id = {
+        str(rule["id"]): rule
+        for rule in hook_config["rules"]
+        if isinstance(rule, dict) and "id" in rule
+    }
+    control_rules: list[dict[str, Any]] = []
+    for rule_id in control_check_ids:
+        rule = rules_by_id.get(rule_id)
+        if rule is None:
+            print(f"ERROR: Deterministic hook check not found: {rule_id}", file=sys.stderr)
+            return 1
+        if not rule.get("enabled", True):
+            print(f"ERROR: Deterministic hook check is disabled: {rule_id}", file=sys.stderr)
+            return 1
+        if "run_check" not in rule:
+            print(f"ERROR: Hook rule is not a deterministic check: {rule_id}", file=sys.stderr)
+            return 1
+        control_rules.append(rule)
+    try:
+        criteria = combine_criteria(acceptance_criteria, control_rules)
+    except ValueError as criterion_error:
+        print(f"ERROR: {criterion_error}", file=sys.stderr)
+        return 1
     registry, errors, warnings = build_skill_registry(root)
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
     if errors:
-        for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
+        for registry_error in errors:
+            print(f"ERROR: {registry_error}", file=sys.stderr)
         return 1
     write_json(root / RUNTIME_DIRECTORY / "skill-registry.json", registry)
     runtime_profile = {
         "fresh_context": fresh_context,
         "available_tools": list(tools),
-        "model_capabilities": list(model_capabilities),
-        "model": model,
-        "provider": provider,
-        "network_available": network_available,
-        "data_classification": data_classification,
-        "model_data_classifications": list(model_data_classifications),
         "approvals": list(approvals),
-        "platform": platform,
     }
-    record, procedure, policy_errors = invoke_skill(
+    record, procedure, invocation_errors = invoke_skill(
         root,
         registry,
         task=task,
@@ -575,8 +624,10 @@ def invoke_repository(
         runtime_profile=runtime_profile,
         candidate_limit=candidate_limit,
         shortlist_limit=limit,
+        criteria=criteria,
+        review_of_invocation_id=review_of_invocation_id,
     )
-    for candidate in record["candidate_set"]["candidates"]:
+    for candidate in record["candidates"]:
         record_skill_event(
             root,
             registry,
@@ -584,14 +635,15 @@ def invoke_repository(
             "considered",
             reason="invocation-candidate-set",
         )
-    selected_id = record["selection_decision"]["selected_registry_id"]
+    selected = record["selected_skill"]
+    selected_id = selected["registry_id"] if selected else None
     if selected_id:
         record_skill_event(
             root,
             registry,
             selected_id,
             "selected",
-            reason=record["selection_decision"]["reason"],
+            reason=record["selection_reason"],
         )
     output = {
         "invocation_record": record,
@@ -604,19 +656,8 @@ def invoke_repository(
             "invocation_id": record["invocation_id"],
             "status": record["status"],
             "selected_registry_id": selected_id,
-            "policy_decision": record["invocation_plan"]["policy"]["decision"],
-            "rejection_reasons": record["invocation_plan"]["policy"][
-                "rejection_reasons"
-            ],
-            "capability_demand_sha256": record["capability_demand"][
-                "capability_demand_sha256"
-            ],
-            "candidate_set_sha256": record["candidate_set"][
-                "candidate_set_sha256"
-            ],
-            "invocation_plan_sha256": record["invocation_plan"][
-                "invocation_plan_sha256"
-            ],
+            "safety_decision": record["safety"]["decision"],
+            "rejection_reasons": record["safety"]["rejection_reasons"],
             "invocation_record_sha256": record["invocation_record_sha256"],
             "record_path": str(
                 root
@@ -628,9 +669,99 @@ def invoke_repository(
         if procedure is not None:
             print("\n--- selected procedure ---\n")
             print(procedure, end="" if procedure.endswith("\n") else "\n")
-    for error in policy_errors:
-        print(f"ERROR: {error}", file=sys.stderr)
+    for invocation_error in invocation_errors:
+        print(f"ERROR: {invocation_error}", file=sys.stderr)
     return 0 if record["status"] == "procedure-loaded" else 1
+
+
+def emit_event_repository(
+    root: Path,
+    event: str,
+    payload_values: Iterable[str],
+    idempotency_key: str | None,
+    parent_event_id: str | None,
+    chain_depth: int,
+    fresh_context: bool,
+    tools: Iterable[str],
+    approvals: Iterable[str],
+    as_json: bool,
+    for_invocation_id: str | None,
+) -> int:
+    payload, payload_errors = parse_payload_values(payload_values)
+    if payload_errors:
+        for error in payload_errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    runtime_profile = {
+        "fresh_context": fresh_context,
+        "available_tools": list(tools),
+        "approvals": list(approvals),
+    }
+    record, procedures, errors = process_event(
+        root,
+        event=event,
+        payload=payload,
+        runtime_profile=runtime_profile,
+        idempotency_key=idempotency_key,
+        parent_event_id=parent_event_id,
+        chain_depth=chain_depth,
+        for_invocation_id=for_invocation_id,
+    )
+    output = {"hook_event_record": record, "procedures": procedures}
+    if as_json:
+        print(json.dumps(output, indent=2))
+    else:
+        summary = {
+            "event_id": record.get("event_id"),
+            "event": record.get("event"),
+            "status": record.get("status"),
+            "duplicate_delivery": record.get("duplicate_delivery", False),
+            "matched_rules": record.get("matched_rules", []),
+            "actions": record.get("actions", []),
+            "hook_record_sha256": record.get("hook_record_sha256"),
+        }
+        print(json.dumps(summary, indent=2))
+        for invocation_id, procedure in procedures.items():
+            print(f"\n--- procedure for invocation {invocation_id} ---\n")
+            print(procedure, end="" if procedure.endswith("\n") else "\n")
+    for error in errors:
+        print(f"ERROR: {error}", file=sys.stderr)
+    return 0 if not errors and record.get("status") in {
+        "skill-requested",
+        "completed",
+        "no-match",
+    } else 1
+
+
+def native_hook_repository(
+    root: Path, provider: str, native_event: str | None = None
+) -> int:
+    """Read one native hook delivery from stdin and emit its native response."""
+    raw = sys.stdin.read(MAX_NATIVE_HOOK_PAYLOAD_BYTES + 1)
+    if len(raw.encode("utf-8")) > MAX_NATIVE_HOOK_PAYLOAD_BYTES:
+        print("ERROR: Native hook payload exceeds 1 MiB", file=sys.stderr)
+        return 1
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as parse_error:
+        print(
+            f"ERROR: Native hook payload is not valid JSON: {parse_error}",
+            file=sys.stderr,
+        )
+        return 1
+    if not isinstance(payload, dict):
+        print("ERROR: Native hook payload must be a JSON object", file=sys.stderr)
+        return 1
+    _, output, errors = process_native_hook(
+        root, provider, payload, native_event_override=native_event
+    )
+    if output is not None:
+        print(json.dumps(output, separators=(",", ":")))
+    for hook_error in errors:
+        print(f"ERROR: {hook_error}", file=sys.stderr)
+    # Native hosts receive actionable feedback through the JSON response. Avoid
+    # turning an adapter problem into an opaque process-level hook failure.
+    return 0
 
 
 def record_outcome(
@@ -642,6 +773,8 @@ def record_outcome(
     evidence: str | None,
     invocation_id: str | None = None,
     verification: str | None = None,
+    criterion_result_values: Iterable[str] = (),
+    control_event_ids: Iterable[str] = (),
 ) -> int:
     registry, errors, warnings = build_skill_registry(root)
     for warning in warnings:
@@ -650,6 +783,43 @@ def record_outcome(
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
+    _, identifier_error = resolve_skill_metadata(registry, identifier)
+    if identifier_error:
+        print(f"ERROR: {identifier_error}", file=sys.stderr)
+        return 1
+    control_events = tuple(control_event_ids)
+    semantic_results: dict[str, str] = {}
+    for value in criterion_result_values:
+        status, separator, statement = value.partition(":")
+        if not separator or status not in {"passed", "failed", "blocked"} or not statement:
+            print(
+                "ERROR: Criterion results use STATUS:STATEMENT with status "
+                "passed, failed, or blocked",
+                file=sys.stderr,
+            )
+            return 1
+        if statement in semantic_results:
+            print(f"ERROR: Duplicate criterion result: {statement}", file=sys.stderr)
+            return 1
+        semantic_results[statement] = status
+    if (semantic_results or control_events) and not invocation_id:
+        print("ERROR: Criterion results require --invocation-id", file=sys.stderr)
+        return 1
+    if invocation_id:
+        invocation_error = record_invocation_outcome(
+            root,
+            invocation_id,
+            outcome=outcome,
+            verification=verification,
+            evidence=evidence,
+            context_tokens=context_tokens,
+            execution_cost=execution_cost,
+            semantic_results=semantic_results,
+            control_event_ids=control_events,
+        )
+        if invocation_error:
+            print(f"ERROR: {invocation_error}", file=sys.stderr)
+            return 1
     event_error = record_skill_event(
         root,
         registry,
@@ -662,19 +832,6 @@ def record_outcome(
     if event_error:
         print(f"ERROR: {event_error}", file=sys.stderr)
         return 1
-    if invocation_id:
-        invocation_error = record_invocation_outcome(
-            root,
-            invocation_id,
-            outcome=outcome,
-            verification=verification,
-            evidence=evidence,
-            context_tokens=context_tokens,
-            execution_cost=execution_cost,
-        )
-        if invocation_error:
-            print(f"ERROR: {invocation_error}", file=sys.stderr)
-            return 1
     print(f"Recorded {outcome} outcome for {identifier}.")
     return 0
 
@@ -696,7 +853,8 @@ def skill_stats(root: Path, as_json: bool = False) -> int:
         print(
             f"- {versioned_id}: considered={summary['considered']} "
             f"selected={summary['selected']} succeeded={summary['succeeded']} "
-            f"failed={summary['failed']} superseded={summary['superseded']} "
+            f"failed={summary['failed']} blocked={summary['blocked']} "
+            f"superseded={summary['superseded']} "
             f"selection_rate={summary['selection_rate']} failure_rate={summary['failure_rate']} "
             f"context_tokens={summary['context_tokens']} execution_cost={summary['execution_cost']}"
         )
@@ -880,148 +1038,22 @@ def accounting_repository(root: Path, as_json: bool) -> int:
     for skill in fabric["skills"]:
         capabilities = ", ".join(skill["capabilities"])
         print(
-            f"- {skill['registry_id']}@{skill['version']} "
-            f"[{skill['lifecycle']}; {skill['execution']['mode']}]: {capabilities}"
+            f"- {skill['registry_id']}@{skill['version']}: {capabilities}"
         )
-    governed_runs = accounting["runtime_evidence"].get("governed_runs", [])
-    print(f"Governed runs: {len(governed_runs)}")
-    for run in governed_runs:
-        selected_skill = run.get("selected_skill")
-        if isinstance(selected_skill, dict):
-            print(
-                f"- {run['run_id']} [{run['status']}]: "
-                f"{selected_skill['registry_id']} via "
-                f"{run['executor']['provider']}/{run['executor']['model']}"
-            )
-        else:
-            print(
-                f"- {run['run_id']} [{run['status']}]: "
-                "no skill selected; executor not started"
-            )
-        for criterion in run.get("criterion_results", []):
-            identity = criterion.get("responsible_identity", {})
-            responsible = (
-                identity.get("invocation_id")
-                or identity.get("control")
-                or "unavailable"
-            )
-            print(
-                f"  - {criterion['criterion_id']} "
-                f"[{criterion['authority']}/{criterion['evaluator']}]: "
-                f"{criterion['result']} via {responsible}; "
-                f"evidence={criterion.get('supporting_evidence_sha256')}"
-            )
-    return 0
-
-
-def governed_run_repository(
-    root: Path,
-    task: str,
-    task_id: str,
-    skill: str | None,
-    capabilities: Iterable[str],
-    acceptance_criteria: Iterable[str],
-    deterministic_acceptance_criteria: Iterable[str],
-    evidence_paths: Iterable[Path],
-    approvals: Iterable[str],
-    as_json: bool,
-) -> int:
-    try:
-        result = execute_governed_task(
-            root,
-            task_id=task_id,
-            task=task,
-            explicit_skill=skill,
-            capabilities=capabilities,
-            acceptance_criteria=acceptance_criteria,
-            deterministic_acceptance_criteria=deterministic_acceptance_criteria,
-            evidence_paths=evidence_paths,
-            approvals=approvals,
-        )
-    except (
-        OSError,
-        UnicodeError,
-        json.JSONDecodeError,
-        PermissionError,
-        RuntimeError,
-        ValueError,
-        subprocess.SubprocessError,
-    ) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-    if as_json:
-        print(json.dumps(result, indent=2))
-    else:
-        print(
-            json.dumps(
-                {
-                    "run_id": result["run_id"],
-                    "status": result["status"],
-                    "task_id": result["task_request"]["task_id"],
-                    "skill": result["primary"]["skill"]["registry_id"],
-                    "executor": result["primary"]["tool"],
-                    "model": result["primary"]["model"],
-                    "review_invocation_id": result["review"].get("invocation_id"),
-                    "accounting_path": result["accounting_path"],
-                    "run_sha256": result["run_sha256"],
-                },
-                indent=2,
-            )
-        )
-    return 0 if result["status"] == "succeeded" else 1
-
-
-def model_route_repository(
-    root: Path,
-    capabilities: list[str],
-    data_classification: str,
-    network_available: bool,
-    locations: list[str],
-) -> int:
-    try:
-        result = route_model(
-            root,
-            capabilities=capabilities,
-            data_classification=data_classification,
-            network_available=network_available,
-            allowed_locations=locations or ["local", "on-premises", "cloud"],
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, indent=2))
-    return 0 if result["decision"] == "selected" else 1
-
-
-def lifecycle_repository(
-    root: Path, registry_id: str, target: str | None
-) -> int:
-    try:
-        result = (
-            build_promotion_proposal(root, registry_id, target)
-            if target
-            else evaluate_skill_lifecycle(root, registry_id)
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, indent=2))
-    return 0
-
-
-def json_artifact_repository(root: Path, kind: str, provider: str | None) -> int:
-    try:
-        if kind == "skill-graph":
-            result = build_historical_use_graph(root)
-        elif kind == "ci-policy":
-            assert provider is not None
-            result = build_ci_policy(provider)
-        else:
-            result = build_otel_genai_trace_export(root)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, indent=2))
+    evidence = accounting["runtime_evidence"]
+    print("Criterion authority:")
+    print(
+        "- declared: "
+        + json.dumps(evidence["criterion_authority_counts"], sort_keys=True)
+    )
+    print(
+        "- evaluated: "
+        + json.dumps(evidence["criterion_result_counts"], sort_keys=True)
+    )
+    print(
+        "- combined outcomes: "
+        + json.dumps(evidence["combined_result_counts"], sort_keys=True)
+    )
     return 0
 
 
@@ -1074,31 +1106,64 @@ def parser() -> argparse.ArgumentParser:
     invoke.add_argument("--context-digest")
     invoke.add_argument("--fresh-context", action="store_true")
     invoke.add_argument("--tool", action="append", default=[])
-    invoke.add_argument("--model-capability", action="append", default=[])
-    invoke.add_argument("--model")
-    invoke.add_argument("--provider")
-    invoke.add_argument("--network-available", action="store_true")
-    invoke.add_argument(
-        "--data-classification",
-        choices=("public", "internal", "controlled", "restricted"),
-        default="internal",
-    )
-    invoke.add_argument("--model-data-classification", action="append", default=[])
     invoke.add_argument("--approval", action="append", default=[])
-    invoke.add_argument("--platform", default=sys.platform)
+    invoke.add_argument("--acceptance", action="append", default=[])
+    invoke.add_argument(
+        "--control-check",
+        action="append",
+        default=[],
+        help="Enabled run_check hook rule whose result is authoritative",
+    )
+    invoke.add_argument("--review-of")
     invoke.add_argument("--candidate-limit", type=_positive_int, default=18)
     invoke.add_argument("--limit", type=_positive_int, default=4)
     invoke.add_argument("--json", action="store_true")
 
+    event = commands.add_parser("event")
+    event.add_argument("event", help="Event name used by an `on` hook rule")
+    event.add_argument("path", nargs="?", default=".")
+    event.add_argument("--data", action="append", default=[])
+    event.add_argument("--idempotency-key")
+    event.add_argument("--parent-event-id")
+    event.add_argument("--chain-depth", type=int, default=0)
+    event.add_argument("--fresh-context", action="store_true")
+    event.add_argument("--tool", action="append", default=[])
+    event.add_argument("--approval", action="append", default=[])
+    event.add_argument(
+        "--for-invocation",
+        help="Bind deterministic check evidence to one invocation",
+    )
+    event.add_argument("--json", action="store_true")
+
+    native_hook = commands.add_parser(
+        "native-hook",
+        help="Adapt a platform-native hook payload from stdin",
+    )
+    native_hook.add_argument("provider", choices=("codex", "copilot"))
+    native_hook.add_argument("path", nargs="?", default=".")
+    native_hook.add_argument(
+        "--event",
+        help="Native event name when the host payload does not include it",
+    )
+
     outcome = commands.add_parser("outcome")
     outcome.add_argument("identifier")
-    outcome.add_argument("outcome", choices=("succeeded", "failed", "superseded"))
+    outcome.add_argument(
+        "outcome", choices=("succeeded", "failed", "blocked", "superseded")
+    )
     outcome.add_argument("path", nargs="?", default=".")
     outcome.add_argument("--context-tokens", type=int)
     outcome.add_argument("--execution-cost", type=float)
     outcome.add_argument("--evidence")
     outcome.add_argument("--invocation-id")
     outcome.add_argument("--verification", choices=("passed", "failed", "blocked"))
+    outcome.add_argument(
+        "--criterion-result",
+        action="append",
+        default=[],
+        help="Semantic result as STATUS:STATEMENT",
+    )
+    outcome.add_argument("--control-event", action="append", default=[])
 
     stats = commands.add_parser("skill-stats")
     stats.add_argument("path", nargs="?", default=".")
@@ -1149,52 +1214,6 @@ def parser() -> argparse.ArgumentParser:
     accounting = commands.add_parser("accounting")
     accounting.add_argument("path", nargs="?", default=".")
     accounting.add_argument("--json", action="store_true")
-
-    governed = commands.add_parser("governed-run")
-    governed.add_argument("task")
-    governed.add_argument("path", nargs="?", default=".")
-    governed.add_argument("--task-id", required=True)
-    governed.add_argument("--skill")
-    governed.add_argument("--capability", action="append", default=[])
-    governed.add_argument("--acceptance", action="append", required=True)
-    governed.add_argument("--control-acceptance", action="append", default=[])
-    governed.add_argument("--evidence", action="append", type=Path, required=True)
-    governed.add_argument("--approval", action="append", default=[])
-    governed.add_argument("--json", action="store_true")
-
-    model_route = commands.add_parser("model-route")
-    model_route.add_argument("path", nargs="?", default=".")
-    model_route.add_argument("--capability", action="append", default=[])
-    model_route.add_argument(
-        "--data-classification",
-        choices=("public", "internal", "controlled", "restricted"),
-        default="internal",
-    )
-    model_route.add_argument("--network-available", action="store_true")
-    model_route.add_argument(
-        "--location",
-        action="append",
-        choices=("local", "on-premises", "cloud"),
-        default=[],
-    )
-
-    retrievers = commands.add_parser("retrievers")
-    retrievers.add_argument("path", nargs="?", default=".")
-
-    lifecycle = commands.add_parser("skill-evaluate")
-    lifecycle.add_argument("registry_id")
-    lifecycle.add_argument("path", nargs="?", default=".")
-    lifecycle.add_argument("--propose")
-
-    skill_graph = commands.add_parser("skill-graph")
-    skill_graph.add_argument("path", nargs="?", default=".")
-
-    ci_policy = commands.add_parser("ci-policy")
-    ci_policy.add_argument("provider", choices=("github", "azure", "gitlab"))
-    ci_policy.add_argument("path", nargs="?", default=".")
-
-    trace_export = commands.add_parser("trace-export")
-    trace_export.add_argument("path", nargs="?", default=".")
 
     return root
 
@@ -1252,18 +1271,30 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.context_digest,
             arguments.fresh_context,
             arguments.tool,
-            arguments.model_capability,
-            arguments.model,
-            arguments.provider,
-            arguments.network_available,
-            arguments.data_classification,
-            arguments.model_data_classification,
             arguments.approval,
-            arguments.platform,
+            arguments.acceptance,
+            arguments.control_check,
+            arguments.review_of,
             arguments.candidate_limit,
             arguments.limit,
             arguments.json,
         )
+    if arguments.command == "event":
+        return emit_event_repository(
+            root,
+            arguments.event,
+            arguments.data,
+            arguments.idempotency_key,
+            arguments.parent_event_id,
+            arguments.chain_depth,
+            arguments.fresh_context,
+            arguments.tool,
+            arguments.approval,
+            arguments.json,
+            arguments.for_invocation,
+        )
+    if arguments.command == "native-hook":
+        return native_hook_repository(root, arguments.provider, arguments.event)
     if arguments.command == "outcome":
         return record_outcome(
             root,
@@ -1274,6 +1305,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.evidence,
             arguments.invocation_id,
             arguments.verification,
+            arguments.criterion_result,
+            arguments.control_event,
         )
     if arguments.command == "skill-stats":
         return skill_stats(root, arguments.json)
@@ -1305,44 +1338,4 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 0
     if arguments.command == "accounting":
         return accounting_repository(root, arguments.json)
-    if arguments.command == "governed-run":
-        return governed_run_repository(
-            root,
-            arguments.task,
-            arguments.task_id,
-            arguments.skill,
-            arguments.capability,
-            arguments.acceptance,
-            arguments.control_acceptance,
-            arguments.evidence,
-            arguments.approval,
-            arguments.json,
-        )
-    if arguments.command == "model-route":
-        return model_route_repository(
-            root,
-            arguments.capability,
-            arguments.data_classification,
-            arguments.network_available,
-            arguments.location,
-        )
-    if arguments.command == "retrievers":
-        print(
-            json.dumps(
-                {
-                    "entry_point_group": "aae.skill_retrievers",
-                    "retrievers": sorted(skill_retriever_entry_points()),
-                },
-                indent=2,
-            )
-        )
-        return 0
-    if arguments.command == "skill-evaluate":
-        return lifecycle_repository(root, arguments.registry_id, arguments.propose)
-    if arguments.command == "skill-graph":
-        return json_artifact_repository(root, "skill-graph", None)
-    if arguments.command == "ci-policy":
-        return json_artifact_repository(root, "ci-policy", arguments.provider)
-    if arguments.command == "trace-export":
-        return json_artifact_repository(root, "trace-export", None)
     return 2

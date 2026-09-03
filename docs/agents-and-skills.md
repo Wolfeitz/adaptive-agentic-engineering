@@ -1,73 +1,23 @@
-# Agents and Skills Accounting
+# Agents and Skills
 
 AAE includes eight starter skills and zero permanent named agents.
 
-That is intentional. A skill is durable, versioned procedure metadata plus digest-bound instructions. An agent is a runtime executor. Selecting a skill does not automatically create an agent.
+A skill is a durable procedure. An agent is a runtime executor. Selecting a skill normally gives its procedure to the current agent; it does not create a new specialist.
 
-## Runtime roles
+AAE recognizes only three useful runtime distinctions:
 
-| Role | Kind | When used |
+| Role | Kind | Use |
 | --- | --- | --- |
-| current-agent | ephemeral agent role | Default executor for a selected, policy-allowed skill |
-| independent-reviewer | fresh ephemeral agent role | Required by `independent-review` or a task packet whose explicit consequence/evidence state requires independence |
-| deterministic-control-plane | code, not an agent | Owns registry normalization, identity/digest calculation, policy checks, canonical publication, and durable evidence |
+| current-agent | ephemeral role | Normal skill executor |
+| independent-reviewer | fresh ephemeral role | Used when a skill explicitly requires independence |
+| deterministic-control-plane | code, not an agent | Indexes, matches, evaluates hook controls, and records |
 
-## Starter skills
+The starter library covers repository reconnaissance, bounded context, implementation preflight, resource lifecycle, runtime diagnosis, acceptance verification, independent review, and lesson extraction. These are reusable procedures, not departments in an AI org chart.
 
-| Skill | Primary purpose | Mode | Independence |
-| --- | --- | --- | --- |
-| `acceptance-verify` | Criterion-by-criterion completion evidence | hybrid | no |
-| `bounded-context-builder` | Minimal provenance-aware context packet | procedural | no |
-| `implementation-preflight` | Authority, impact, precedent, and verification readiness | hybrid | no |
-| `independent-review` | Fresh-context challenge of consequential work | agentic | yes |
-| `repo-recon` | Bounded repository authority and architecture discovery | hybrid | no |
-| `resource-lifecycle-check` | Concurrency, cancellation, shutdown, and leak analysis | hybrid | no |
-| `review-lesson-extractor` | Evidence-backed guidance/skill/control proposals | hybrid | no |
-| `runtime-diagnosis` | Live provenance and discriminating diagnosis | hybrid | no |
+`aae accounting` reports the live registry, basic safety properties, and observed invocation counts. It deliberately does not report invented lifecycle rankings, autonomous promotion, semantic skill graphs, or a permanent planner/reviewer/tester cast.
 
-All starter skills are experimental. None can promote itself. Source policy, runtime capability checks, and human/project governance determine whether a procedure may execute or advance lifecycle.
+An independent reviewer is gated on a succeeded target invocation and fresh
+context. AAE records the target identity but does not inject its semantic
+verdict into reviewer context.
 
-Run `aae accounting` for a concise live inventory or `aae accounting --json` for exact capabilities, requirements, digests, lifecycle counts, side-effect counts, and authority policy.
-
-The machine-readable accounting also reports observed runtime invocation counts
-by status and ephemeral role, configured model-profile count, installed semantic
-provider/retriever entry points, and a component ledger. This prevents provider
-adapters, deterministic routers, registries, and publishers from being mislabeled
-as autonomous agents.
-
-## What is not present
-
-- no permanent planner/reviewer/tester cast;
-- no hidden autonomous agent daemon;
-- no automatic subagent spawning;
-- no autonomous skill promotion;
-- no distributed scheduler;
-- no live model or tracker credentials.
-
-## Implemented non-agent controls
-
-- deterministic intent compilation and semantic validation/publication;
-- content-addressed releases, impact graphs, task packets, and rollback;
-- source-trust and capability-aware skill invocation policy;
-- deterministic model eligibility and fallback ordering;
-- bounded semantic-retriever plug-in contract;
-- advisory skill evaluation and promotion proposals that never self-apply;
-- historical-use, CI-policy, tracker-payload, and redacted trace artifacts.
-
-Configured provider or retriever plug-ins may internally use models or agents,
-but AAE records them as adapters until a runtime actually binds an executor.
-
-An active runtime may create a specialist when fresh context, model diversity, or expertise is justified. The invocation record must preserve why that binding occurred.
-
-## AAE 0.3 enforcement boundary
-
-Role names and the `fresh_context` value are a portable execution contract, not
-proof that a separate process or conversation was created. Approval, tool,
-model, network, and data values supplied by a runtime are assertions checked by
-deterministic policy. Operating-system permissions, CI protection, and the
-invoking platform remain the security and human-authorization boundaries. AAE
-does not let a skill promote itself, but it cannot prevent a process with direct
-repository access from bypassing the CLI.
-
-See [the AAE 0.3 architecture audit](architecture-audit-0.3.md) for strict
-implemented, partial, unintegrated, and deferred accounting.
+AAE does not automatically create agents or skills. A runtime may use a fresh specialist when independence or expertise genuinely warrants it. A repeated procedure becomes a new skill only when a person or an explicitly governed future workflow chooses to package it.

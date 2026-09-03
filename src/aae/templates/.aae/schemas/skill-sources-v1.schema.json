@@ -12,32 +12,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "scope", "adapter", "path", "owner", "provenance", "trust", "capability_allowlist", "approval"],
+        "required": ["id", "scope", "adapter", "path"],
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
-          "scope": {"enum": ["enterprise", "project", "runtime", "local"]},
+          "scope": {"enum": ["enterprise", "project", "local"]},
           "adapter": {"enum": ["aae-json", "skill-md", "registry-json"]},
-          "path": {"type": "string", "minLength": 1},
-          "owner": {"type": "string", "minLength": 1},
-          "provenance": {"type": "string", "minLength": 1},
-          "trust": {"enum": ["untrusted", "declared", "governed"]},
-          "capability_allowlist": {"type": "array", "items": {"type": "string", "minLength": 1}},
-          "approval": {
-            "type": "object",
-            "required": ["status"],
-            "properties": {
-              "status": {"enum": ["pending", "approved", "rejected"]},
-              "approved_by": {"type": ["string", "null"]},
-              "policy_version": {"type": ["string", "null"]}
-            }
-          },
-          "integrity": {
-            "type": "object",
-            "properties": {
-              "expected_content_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-              "signature": {"type": ["string", "null"]}
-            }
-          }
+          "path": {"type": "string", "minLength": 1}
         }
       }
     }

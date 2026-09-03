@@ -23,26 +23,22 @@ Offline tracker exporters translate active task packets into Azure DevOps, GitHu
 
 ## Invocation control
 
-`aae invoke` turns task evidence into a capability demand, produces the bounded registry shortlist, records the deterministic selection, and evaluates `.aae/skill-policy.json` before loading any procedure.
+`aae invoke` matches task evidence against skill advertisements, records the bounded shortlist and selection, and applies the v1 safety checks before loading any procedure.
 
-The policy gate checks:
+The safety gate checks:
 
-- skill lifecycle and source trust/approval/integrity;
-- whether adapted advisory contracts are allowed;
+- required tools;
+- destructive behavior and explicit approval;
 - independence and fresh-context requirements;
-- side effects and explicit approvals;
-- required tools and model capabilities;
-- platform and network availability;
-- project, skill, and model data-classification boundaries.
+- content identity between registry construction and procedure loading.
 
-The resulting invocation record contains capability, candidate, selection, plan, runtime binding, procedure digest, and outcome provenance. A denial is durable evidence and never silently falls back to an ineligible skill.
+The resulting invocation record contains the task, candidates, selection, safety checks, procedure digest, trigger provenance, and outcome. A denial is durable evidence and never silently falls back to another skill.
 
-The control plane binds an allowed procedure to the current agent by default. An independence-required procedure binds to a fresh independent-reviewer role. Those are runtime roles, not permanently running agents.
+The current agent runs an allowed procedure by default. An independence-required procedure needs fresh context and may be assigned to a temporary reviewer. Those are runtime roles, not permanently running agents.
 
 ## Boundaries
 
-Implemented provider and retriever interfaces do not imply a configured model.
-Model profiles remain explicit local configuration. Credentialed tracker
+Implemented provider interfaces do not imply a configured model. Credentialed tracker
 submission exists behind an HTTPS, environment-credential, explicit
 external-write confirmation boundary; it is never invoked implicitly.
 Distributed orchestration remains outside AAE.

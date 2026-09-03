@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aae.dev/schemas/invocation-record-v2.schema.json",
+  "title": "AAE Skill Invocation Record v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "invocation_id",
+    "task",
+    "candidates",
+    "safety",
+    "criteria",
+    "executor_criteria",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "invocation_id": {"type": "string"},
+    "task": {"type": "object"},
+    "candidates": {"type": "array"},
+    "selected_skill": {"type": ["object", "null"]},
+    "criteria": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/criterion"}
+    },
+    "executor_criteria": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/criterion"},
+          {
+            "properties": {
+              "authority": {"const": "semantic-executor"}
+            }
+          }
+        ]
+      }
+    },
+    "review_of_invocation_id": {"type": ["string", "null"]},
+    "safety": {
+      "type": "object",
+      "required": ["decision", "checks", "rejection_reasons"],
+      "properties": {
+        "decision": {"enum": ["allowed", "denied"]},
+        "checks": {"type": "array"},
+        "rejection_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "status": {"type": "string"}
+  },
+  "$defs": {
+    "criterion": {
+      "type": "object",
+      "required": ["criterion_id", "statement", "authority", "evaluator"],
+      "properties": {
+        "criterion_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "statement": {"type": "string", "minLength": 1},
+        "authority": {
+          "enum": ["semantic-executor", "deterministic-control"]
+        },
+        "evaluator": {
+          "enum": ["agent-report-v1", "hook-command-exit-zero-v1"]
+        },
+        "evaluator_config": {"type": "object"}
+      }
+    }
+  }
+}

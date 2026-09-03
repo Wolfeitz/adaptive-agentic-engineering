@@ -20,7 +20,6 @@ from aae.semantic import (
     rollback_release,
     unresolved_material_items,
     validate_semantic_document,
-    verify_semantic_release,
 )
 from aae.skills import build_skill_registry
 
@@ -202,25 +201,6 @@ class SemanticCompilerTests(unittest.TestCase):
             source.write_text(source.read_text(encoding="utf-8") + "\nchanged\n")
             with self.assertRaisesRegex(ValueError, "does not match"):
                 publish_semantic_document(root, document)
-
-    def test_release_consumers_fail_closed_after_packet_tampering(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            document, _ = self.make_project(root)
-            release = publish_semantic_document(root, document)
-            verify_semantic_release(root)
-            packet_path = release.release_path / "task-packets/implement-change.json"
-            packet = json.loads(packet_path.read_text(encoding="utf-8"))
-            packet["description"] = "tampered"
-            packet_path.write_text(json.dumps(packet), encoding="utf-8")
-            for operation in (
-                lambda: load_active_task_packet(root, "implement-change"),
-                lambda: export_tracker_items(root, "github"),
-                lambda: publish_semantic_document(root, document),
-                lambda: rollback_release(root, release.release_id),
-            ):
-                with self.assertRaisesRegex(ValueError, "file digest mismatch"):
-                    operation()
 
 
 if __name__ == "__main__":

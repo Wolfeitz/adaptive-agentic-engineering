@@ -1,19 +1,10 @@
 {
   "schema_version": 1,
   "name": "independent-review",
-  "version": "0.1.0",
   "description": "Challenge correctness, architecture, security, performance, and specification compliance from fresh bounded evidence.",
   "capabilities": ["independent-review", "code-review", "architecture-review", "security-review", "specification-compliance-review"],
-  "triggers": ["consequential change", "required review", "security boundary", "architecture boundary", "release candidate"],
-  "applicable_when": ["independence-needed", "material-consequence", "implementation-ready-for-review"],
-  "inputs": ["neutral-evidence-packet", "requirements", "diff-or-artifact", "verification-results"],
-  "produces": ["evidence-cited-findings", "severity", "missed-stop-conditions", "review-verdict"],
-  "requires": ["fresh-bounded-context"],
-  "may_recommend": ["runtime-diagnosis", "acceptance-verify", "review-lesson-extractor"],
-  "cost": {"context": "medium", "reasoning": "high"},
+  "when_to_use": ["consequential change", "required review", "security boundary", "architecture boundary", "release candidate"],
+  "requires_tools": ["filesystem-read"],
   "independence_required": true,
-  "lifecycle": "experimental",
-  "execution": {"mode": "agentic", "side_effects": "read-only"},
-  "requirements": {"tools": ["filesystem-read"], "model_capabilities": ["reasoning"], "platforms": ["any"], "network": "none", "data_classifications": ["public", "internal", "controlled"]},
   "procedure": "SKILL.md"
 }

@@ -4,4 +4,6 @@
 
 The architecture has not yet been documented here.
 
-AAE workflows request capabilities from the normalized skill registry. Durable skills advertise reusable procedures; roles and agents remain ephemeral runtime bindings. Add project skills under `.aae/skills/` and configure approved enterprise, runtime, or local sources explicitly. Discovery must remain metadata-first and bounded. Selection is not permission: load full procedures only through a policy-allowed `InvocationPlan` bound to portable skill and registry identities.
+AAE workflows discover reusable procedures from a normalized skill registry; roles and agents remain ephemeral runtime bindings. Add project skills under `.aae/skills/` and configure enterprise, project, or local sources explicitly. Discovery remains advertisement-first and bounded. Use `aae invoke` so required-tool, destructive-approval, and fresh-context checks run before a full procedure loads.
+
+Use `.aae/hooks.json` for deterministic `on` plus optional `paths` routing. Each rule requests one skill or runs one direct check. Keep rules idempotent, payload-redacted, and disabled until the project intentionally enables them.

@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "promotion_thresholds": {
-    "minimum_selected": 5,
-    "minimum_succeeded": 4,
-    "maximum_failure_rate": 0.2,
-    "minimum_evidence_references": 3
-  }
-}

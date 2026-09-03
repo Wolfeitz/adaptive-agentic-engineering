@@ -88,7 +88,7 @@ class AaeCliTests(unittest.TestCase):
             self.assertTrue((root / ".aae/skill-sources.local.example.json").exists())
             self.assertTrue((root / ".aae/skills/repo-recon/skill.json").exists())
             schemas = sorted((root / ".aae/schemas").glob("*.schema.json"))
-            self.assertEqual(len(schemas), 9)
+            self.assertEqual(len(schemas), 5)
             for schema_path in schemas:
                 schema = json.loads(schema_path.read_text(encoding="utf-8"))
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
@@ -109,7 +109,7 @@ class AaeCliTests(unittest.TestCase):
             skill, instructions, error = load_skill_instructions(registry, "project:repo-recon")
             self.assertIsNotNone(skill)
             self.assertIsNone(instructions)
-            self.assertIn("allowed InvocationPlan", str(error))
+            self.assertIn("allowed invocation decision", str(error))
             assert skill is not None
             self.assertEqual(skill["name"], "repo-recon")
 
@@ -197,7 +197,7 @@ class AaeCliTests(unittest.TestCase):
                 registry, "project:repo-recon"
             )
             self.assertIsNone(instructions)
-            self.assertIn("allowed InvocationPlan", str(load_error))
+            self.assertIn("allowed invocation decision", str(load_error))
 
     def test_watched_state_hashes_content_not_only_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -220,7 +220,7 @@ class AaeCliTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text()), {"value": 1})
             self.assertEqual(list(path.parent.glob("*.tmp")), [])
 
-    def test_discovery_filters_lifecycle_and_bounds_context(self) -> None:
+    def test_discovery_matches_advertisements_and_bounds_context(self) -> None:
         skills = []
         for index in range(30):
             skills.append(
@@ -230,16 +230,11 @@ class AaeCliTests(unittest.TestCase):
                     "version": "1.0.0",
                     "description": "Review authentication security boundaries",
                     "capabilities": ["security-analysis"],
-                    "triggers": ["authentication change"],
-                    "applicable_when": ["security risk"],
-                    "inputs": ["change"],
-                    "produces": ["security findings"],
-                    "requires": [],
-                    "may_recommend": [],
-                    "cost": {"context": "low", "reasoning": "medium"},
+                    "when_to_use": ["authentication change", "security risk"],
+                    "requires_tools": [],
+                    "destructive": False,
                     "independence_required": False,
-                    "lifecycle": "retired" if index == 0 else "validated",
-                    "execution": {"mode": "agentic", "side_effects": "read-only"},
+                    "skill_content_sha256": f"{index:064x}",
                     "source": {"id": "project", "scope": "project", "adapter": "aae-json", "path": ".aae/skills"},
                 }
             )
@@ -256,11 +251,10 @@ class AaeCliTests(unittest.TestCase):
             limit=4,
         )
         self.assertEqual(result["registry_skill_count"], 30)
-        self.assertEqual(result["eligible_skill_count"], 29)
-        self.assertEqual(result["metadata_candidate_count"], 29)
+        self.assertEqual(result["eligible_skill_count"], 30)
+        self.assertEqual(result["metadata_candidate_count"], 30)
         self.assertEqual(len(result["shortlist"]), 4)
         self.assertEqual(result["clues"]["environment"], ["python asyncio"])
-        self.assertNotIn("project:security-0", {item["registry_id"] for item in result["shortlist"]})
 
     def test_skill_md_adapter_normalizes_frontmatter(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -285,7 +279,7 @@ class AaeCliTests(unittest.TestCase):
                         "sources": [
                             {
                                 "id": "runtime",
-                                "scope": "runtime",
+                                "scope": "local",
                                 "adapter": "skill-md",
                                 "path": str(root / "runtime-skills"),
                             }
@@ -302,6 +296,135 @@ class AaeCliTests(unittest.TestCase):
             self.assertEqual(skill["registry_id"], "runtime:contract-check")
             self.assertEqual(skill["capabilities"], ["compatibility-analysis", "api-analysis"])
             self.assertTrue(skill["adapted"])
+
+    def test_skill_md_adapter_accepts_multiline_description(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "runtime-skills" / "contract-check"
+            external.mkdir(parents=True)
+            (external / "SKILL.md").write_text(
+                "---\n"
+                "name: contract-check\n"
+                "description: >\n"
+                "  Find consumers before changing a shared contract.\n"
+                "  Report compatibility and verification risks.\n"
+                "---\n"
+                "# Full runtime instructions\n",
+                encoding="utf-8",
+            )
+            aae = root / ".aae"
+            aae.mkdir()
+            (aae / "skill-sources.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sources": [
+                            {
+                                "id": "runtime",
+                                "scope": "local",
+                                "adapter": "skill-md",
+                                "path": str(root / "runtime-skills"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry, errors, warnings = build_skill_registry(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(warnings, [])
+            self.assertEqual(
+                registry["skills"][0]["description"],
+                "Find consumers before changing a shared contract. Report compatibility and verification risks.",
+            )
+
+    def test_skill_md_adapter_ignores_provider_owned_nested_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "runtime-skills" / "contract-check"
+            external.mkdir(parents=True)
+            (external / "SKILL.md").write_text(
+                "---\n"
+                "name: contract-check\n"
+                "description: Check shared contracts\n"
+                "allowed-tools:\n"
+                "  - Read\n"
+                "  - Grep\n"
+                "metadata:\n"
+                "  runtime:\n"
+                "    - python\n"
+                "---\n"
+                "# Full runtime instructions\n",
+                encoding="utf-8",
+            )
+            aae = root / ".aae"
+            aae.mkdir()
+            (aae / "skill-sources.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sources": [
+                            {
+                                "id": "runtime",
+                                "scope": "local",
+                                "adapter": "skill-md",
+                                "path": str(root / "runtime-skills"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry, errors, warnings = build_skill_registry(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(warnings, [])
+            self.assertEqual(registry["skill_count"], 1)
+
+    def test_registry_json_adapter_resolves_procedure_from_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "organization"
+            procedure = source / "contract-check" / "SKILL.md"
+            procedure.parent.mkdir(parents=True)
+            procedure.write_text("# Contract check\n", encoding="utf-8")
+            (source / "registry.json").write_text(
+                json.dumps(
+                    {
+                        "skills": [
+                            {
+                                "schema_version": 1,
+                                "name": "contract-check",
+                                "description": "Check contract compatibility",
+                                "when_to_use": ["public API change"],
+                                "procedure": "contract-check/SKILL.md",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            aae = root / ".aae"
+            aae.mkdir()
+            (aae / "skill-sources.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sources": [
+                            {
+                                "id": "organization",
+                                "scope": "enterprise",
+                                "adapter": "registry-json",
+                                "path": str(source / "registry.json"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry, errors, warnings = build_skill_registry(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(warnings, [])
+            self.assertEqual(registry["skills"][0]["procedure_path"], str(procedure))
 
     def test_invalid_manifest_fails_registry_and_validation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
