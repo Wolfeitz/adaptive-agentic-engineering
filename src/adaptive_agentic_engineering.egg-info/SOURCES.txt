@@ -57,7 +57,9 @@ src/aae/templates/.aae/specs/_template/design.md
 src/aae/templates/.aae/specs/_template/requirements.md
 src/aae/templates/.aae/specs/_template/tasks.md
 src/aae/templates/.aae/state/README.md
+src/aae/templates/.codex/hooks.json
 src/aae/templates/.github/copilot-instructions.md
+src/aae/templates/.github/hooks/aae.json
 src/aae/templates/.github/instructions/aae-specs.instructions.md
 src/aae/templates/.github/prompts/aae-bootstrap.prompt.md
 src/aae/templates/.github/prompts/aae-task.prompt.md

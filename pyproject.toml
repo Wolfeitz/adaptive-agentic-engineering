@@ -26,6 +26,8 @@ where = ["src"]
 "aae.templates" = [
   "AGENTS.md",
   ".gitignore",
+  ".codex/*",
+  ".codex/**/*",
   ".github/*",
   ".github/**/*",
   ".aae/*",

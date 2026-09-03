@@ -7,10 +7,34 @@ import tempfile
 import unittest
 
 from aae.cli import init_repository
-from aae.hooks import load_hook_config, parse_payload_values, process_event
+from aae.hooks import (
+    load_hook_config,
+    normalize_native_hook,
+    parse_payload_values,
+    process_event,
+    process_native_hook,
+)
 
 
 class HookEventTests(unittest.TestCase):
+    def test_init_installs_native_hook_adapters_without_enabling_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repository(root)
+            codex = json.loads((root / ".codex/hooks.json").read_text())
+            copilot = json.loads((root / ".github/hooks/aae.json").read_text())
+            self.assertEqual(
+                codex["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+                "aae native-hook codex",
+            )
+            self.assertEqual(
+                copilot["hooks"]["postToolUse"][0]["bash"],
+                "aae native-hook copilot --event PostToolUse",
+            )
+            config, errors = load_hook_config(root)
+            self.assertEqual(errors, [])
+            self.assertTrue(all(not rule["enabled"] for rule in config["rules"]))
+
     def test_seeded_hooks_are_valid_and_disabled_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -139,6 +163,133 @@ class HookEventTests(unittest.TestCase):
             self.assertEqual(record["status"], "configuration-invalid")
             self.assertEqual(procedures, {})
             self.assertTrue(event_errors)
+
+    def test_codex_apply_patch_normalizes_to_files_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.mkdir(exist_ok=True)
+            event, payload, key, errors = normalize_native_hook(
+                root,
+                "codex",
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "session-1",
+                    "turn_id": "turn-1",
+                    "tool_use_id": "tool-1",
+                    "tool_name": "apply_patch",
+                    "tool_input": {
+                        "command": "*** Begin Patch\n*** Update File: src/aae/cli.py\n"
+                    },
+                    "tool_response": "sensitive content that must not persist",
+                },
+            )
+            self.assertEqual(errors, [])
+            self.assertEqual(event, "files-changed")
+            self.assertEqual(payload["paths"], ["src/aae/cli.py"])
+            self.assertEqual(payload["session_id"], "session-1")
+            self.assertNotIn("tool_response", payload)
+            self.assertIsNotNone(key)
+
+    def test_native_delivery_persists_only_normalized_facts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repository(root)
+            config = {
+                "schema_version": 1,
+                "rules": [
+                    {
+                        "id": "check-python",
+                        "on": "files-changed",
+                        "paths": ["src/**/*.py"],
+                        "run_check": [sys.executable, "-c", "raise SystemExit(0)"],
+                    }
+                ],
+            }
+            (root / ".aae/hooks.json").write_text(json.dumps(config), encoding="utf-8")
+            secret = "do-not-store-this-tool-response"
+            record, output, errors = process_native_hook(
+                root,
+                "copilot",
+                {
+                    "session_id": "session-2",
+                    "tool_name": "write_file",
+                    "tool_input": {"file_path": "src/aae/hooks.py"},
+                    "tool_response": secret,
+                },
+                native_event_override="PostToolUse",
+            )
+            self.assertEqual(errors, [])
+            assert record is not None
+            self.assertEqual(record["status"], "completed")
+            self.assertIsNone(output)
+            saved = next((root / ".aae/runtime/hook-events").glob("*.json")).read_text()
+            self.assertNotIn(secret, saved)
+            self.assertNotIn("tool_response", saved)
+            self.assertIn("native_payload_sha256", saved)
+
+    def test_native_no_match_creates_no_event_record(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repository(root)
+            record, output, errors = process_native_hook(
+                root,
+                "codex",
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "session-3",
+                    "tool_name": "Read",
+                    "tool_input": {"path": "README.md"},
+                },
+            )
+            self.assertEqual(errors, [])
+            assert record is not None
+            self.assertEqual(record["status"], "no-match")
+            self.assertIsNone(output)
+            self.assertFalse((root / ".aae/runtime/hook-events").exists())
+
+    def test_native_skill_request_returns_host_specific_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_repository(root)
+            config = {
+                "schema_version": 1,
+                "rules": [
+                    {
+                        "id": "review-python-change",
+                        "on": "files-changed",
+                        "paths": ["src/**/*.py"],
+                        "request_skill": "project:review-lesson-extractor",
+                    }
+                ],
+            }
+            (root / ".aae/hooks.json").write_text(json.dumps(config), encoding="utf-8")
+            native = {
+                "hook_event_name": "PostToolUse",
+                "session_id": "session-4",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/aae/new.py"},
+            }
+            codex_record, codex_output, codex_errors = process_native_hook(
+                root, "codex", native
+            )
+            self.assertEqual(codex_errors, [])
+            assert codex_record is not None and codex_output is not None
+            self.assertEqual(codex_record["status"], "skill-requested")
+            self.assertEqual(
+                codex_output["hookSpecificOutput"]["hookEventName"], "PostToolUse"
+            )
+            self.assertIn(
+                "Review Lesson Extractor",
+                codex_output["hookSpecificOutput"]["additionalContext"],
+            )
+
+            native["session_id"] = "session-5"
+            _, copilot_output, copilot_errors = process_native_hook(
+                root, "copilot", native
+            )
+            self.assertEqual(copilot_errors, [])
+            assert copilot_output is not None
+            self.assertIn("additionalContext", copilot_output)
 
 
 if __name__ == "__main__":

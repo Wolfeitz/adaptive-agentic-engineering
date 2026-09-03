@@ -171,20 +171,62 @@ def _parse_frontmatter(path: Path, errors: list[str]) -> dict[str, object] | Non
     if not lines or lines[0].strip() != "---":
         return {"name": path.parent.name, "description": f"Instructions from {path.parent.name}", "when_to_use": []}
     metadata: dict[str, object] = {}
-    for line in lines[1:]:
+    index = 1
+    while index < len(lines):
+        line = lines[index]
         if line.strip() == "---":
             break
         if not line.strip() or line.lstrip().startswith("#"):
+            index += 1
+            continue
+        # Adapted SKILL.md files may carry platform-specific nested metadata.
+        # AAE reads the portable top-level advertisement fields and leaves that
+        # provider-owned structure uninterpreted.
+        if line[0].isspace():
+            index += 1
             continue
         if ":" not in line:
             errors.append(f"{path}: unsupported frontmatter line: {line}")
+            index += 1
             continue
         key, value = line.split(":", 1)
         value = value.strip()
+        if value in {"|", "|-", "|+", ">", ">-", ">+"}:
+            block: list[str] = []
+            index += 1
+            while index < len(lines):
+                candidate = lines[index]
+                if candidate.strip() == "---":
+                    break
+                if candidate and not candidate[0].isspace():
+                    break
+                block.append(candidate)
+                index += 1
+            non_empty_indents = [
+                len(item) - len(item.lstrip()) for item in block if item.strip()
+            ]
+            indent = min(non_empty_indents, default=0)
+            unindented = [item[indent:] if item.strip() else "" for item in block]
+            if value.startswith(">"):
+                paragraphs: list[str] = []
+                paragraph: list[str] = []
+                for item in unindented:
+                    if item:
+                        paragraph.append(item)
+                    elif paragraph:
+                        paragraphs.append(" ".join(paragraph))
+                        paragraph = []
+                if paragraph:
+                    paragraphs.append(" ".join(paragraph))
+                metadata[key.strip()] = "\n".join(paragraphs)
+            else:
+                metadata[key.strip()] = "\n".join(unindented)
+            continue
         if value.startswith("[") and value.endswith("]"):
             metadata[key.strip()] = [item.strip() for item in value[1:-1].split(",") if item.strip()]
         else:
             metadata[key.strip()] = value.strip("\"'")
+        index += 1
     return metadata
 
 

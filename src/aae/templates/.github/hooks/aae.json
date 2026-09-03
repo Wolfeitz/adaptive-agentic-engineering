@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "aae native-hook copilot --event PostToolUse",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}

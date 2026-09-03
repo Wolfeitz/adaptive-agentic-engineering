@@ -22,6 +22,28 @@ HOOK_RECORD_DIRECTORY = Path(".aae/runtime/hook-events")
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 MAX_ACTIONS_PER_EVENT = 16
 MAX_CHAIN_DEPTH = 4
+MAX_NATIVE_CONTEXT_CHARS = 8_000
+NATIVE_PROVIDERS = {"codex", "copilot"}
+NATIVE_EVENT_MAP = {
+    "PreToolUse": "tool-requested",
+    "PostToolUse": "tool-completed",
+    "PermissionRequest": "permission-requested",
+    "UserPromptSubmit": "user-prompt-submitted",
+    "SubagentStart": "subagent-started",
+    "SubagentStop": "subagent-stopped",
+    "Stop": "agent-stopped",
+    "SessionStart": "session-started",
+    "SessionEnd": "session-ended",
+    "PreCompact": "context-compaction-requested",
+    "PostCompact": "context-compacted",
+    "Interrupt": "execution-interrupted",
+}
+EDIT_TOOL_NAMES = {
+    "Edit", "Write", "apply_patch", "edit", "write", "edit_file", "write_file",
+}
+PATCH_PATH_PATTERN = re.compile(
+    r"^\*\*\* (?:Add|Update|Delete) File: (?P<path>.+)$", re.MULTILINE
+)
 
 
 def _digest(value: object) -> str:
@@ -134,6 +156,7 @@ def process_event(
     parent_event_id: str | None = None,
     chain_depth: int = 0,
     for_invocation_id: str | None = None,
+    record_no_match: bool = True,
 ) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """Apply simple `X happens -> request a skill or run a check` rules."""
     profile = runtime_profile or {}
@@ -176,6 +199,15 @@ def process_event(
         "actions": [],
         "status": "configuration-invalid" if errors else "no-match",
     }
+    if payload.get("provider") in NATIVE_PROVIDERS:
+        record["native_provenance"] = {
+            key: payload[key]
+            for key in (
+                "provider", "native_event", "native_payload_sha256", "session_id",
+                "turn_id", "tool_use_id", "tool_name", "paths",
+            )
+            if key in payload
+        }
     procedures: dict[str, str] = {}
     if chain_depth > MAX_CHAIN_DEPTH:
         errors.append(f"Hook chain depth {chain_depth} exceeds {MAX_CHAIN_DEPTH}")
@@ -299,8 +331,207 @@ def process_event(
     record["hook_record_sha256"] = _digest(
         {key: value for key, value in record.items() if key not in {"recorded_at", "hook_record_sha256"}}
     )
-    _write_json(record_path, record)
+    if record_no_match or record["status"] != "no-match":
+        _write_json(record_path, record)
     return record, procedures, errors
+
+
+def find_aae_root(start: Path) -> Path | None:
+    """Find the nearest repository with AAE event rules."""
+    current = start.resolve()
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if (candidate / HOOKS_PATH).is_file():
+            return candidate
+    return None
+
+
+def _native_event_name(payload: dict[str, Any]) -> str | None:
+    value = payload.get("hook_event_name", payload.get("hookEventName"))
+    return value if isinstance(value, str) and value else None
+
+
+def _portable_native_path(root: Path, value: str) -> str | None:
+    if (
+        not value
+        or value == "/dev/null"
+        or len(value) > 4096
+        or "\n" in value
+        or "\r" in value
+        or "\x00" in value
+    ):
+        return None
+    candidate = Path(value.replace("\\", "/"))
+    if candidate.is_absolute():
+        try:
+            candidate = candidate.resolve().relative_to(root.resolve())
+        except ValueError:
+            return None
+    portable = candidate.as_posix()
+    if portable.startswith("./"):
+        portable = portable[2:]
+    parts = Path(portable).parts
+    if not portable or ".." in parts:
+        return None
+    return portable
+
+
+def _native_paths(root: Path, tool_input: object) -> list[str]:
+    found: list[str] = []
+
+    def add(value: object) -> None:
+        if isinstance(value, str):
+            normalized = _portable_native_path(root, value)
+            if normalized is not None:
+                found.append(normalized)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    for key in ("file_path", "filePath", "path"):
+                        if key in item:
+                            add(item[key])
+                else:
+                    add(item)
+
+    if not isinstance(tool_input, dict):
+        return []
+    for key in ("file_path", "filePath", "path", "paths", "files"):
+        if key in tool_input:
+            add(tool_input[key])
+    patch = tool_input.get("patch", tool_input.get("command"))
+    if isinstance(patch, str):
+        for match in PATCH_PATH_PATTERN.finditer(patch):
+            add(match.group("path").strip())
+    return sorted(set(found))
+
+
+def normalize_native_hook(
+    root: Path,
+    provider: str,
+    native_payload: dict[str, Any],
+) -> tuple[str | None, dict[str, Any], str | None, list[str]]:
+    """Reduce a native hook payload to portable, non-sensitive event facts."""
+    if provider not in NATIVE_PROVIDERS:
+        return None, {}, None, [f"Unsupported native hook provider: {provider}"]
+    native_event = _native_event_name(native_payload)
+    if native_event is None:
+        return None, {}, None, ["Native hook payload has no hook event name"]
+    tool_name_value = native_payload.get("tool_name", native_payload.get("toolName"))
+    tool_name = tool_name_value if isinstance(tool_name_value, str) else None
+    tool_input = native_payload.get("tool_input", native_payload.get("toolInput", {}))
+    paths = _native_paths(root, tool_input)
+    event = (
+        "files-changed"
+        if native_event == "PostToolUse" and tool_name in EDIT_TOOL_NAMES and paths
+        else NATIVE_EVENT_MAP.get(native_event)
+    )
+    if event is None:
+        return None, {}, None, [f"Unsupported native hook event: {native_event}"]
+
+    identifiers: dict[str, str] = {}
+    for portable_name, keys in {
+        "session_id": ("session_id", "sessionId"),
+        "turn_id": ("turn_id", "turnId"),
+        "tool_use_id": ("tool_use_id", "toolUseId"),
+    }.items():
+        for key in keys:
+            value = native_payload.get(key)
+            if isinstance(value, str) and value:
+                identifiers[portable_name] = value
+                break
+    normalized = {
+        "provider": provider,
+        "native_event": native_event,
+        "native_payload_sha256": _digest(native_payload),
+        "tool_name": tool_name,
+        "paths": paths,
+        **identifiers,
+    }
+    idempotency_key = "native:" + _digest(
+        {
+            "provider": provider,
+            "native_event": native_event,
+            "identifiers": identifiers,
+            "tool_name": tool_name,
+            "paths": paths,
+            "native_payload_sha256": normalized["native_payload_sha256"],
+        }
+    )
+    return event, normalized, idempotency_key, []
+
+
+def native_hook_output(
+    provider: str,
+    native_event: str,
+    record: dict[str, Any],
+    procedures: dict[str, str],
+    errors: list[str],
+) -> dict[str, Any] | None:
+    """Format bounded feedback using the native host's hook response contract."""
+    messages: list[str] = []
+    if procedures:
+        messages.append(
+            "AAE requested the following registered procedure(s):\n\n"
+            + "\n\n".join(procedures.values())
+        )
+    if errors:
+        messages.append("AAE hook errors: " + "; ".join(errors))
+    failed = record.get("status") in {
+        "failed", "denied", "configuration-invalid", "chain-depth-denied",
+        "action-budget-denied",
+    }
+    if failed and not errors:
+        messages.append(f"AAE event handling ended with status {record.get('status')}.")
+    if not messages:
+        return None
+    context = "\n\n".join(messages)
+    if len(context) > MAX_NATIVE_CONTEXT_CHARS:
+        context = context[:MAX_NATIVE_CONTEXT_CHARS] + "\n\n[AAE output truncated]"
+    if provider == "codex":
+        output: dict[str, Any] = {
+            "hookSpecificOutput": {
+                "hookEventName": native_event,
+                "additionalContext": context,
+            }
+        }
+        if failed and native_event == "PostToolUse":
+            output.update({"decision": "block", "reason": context})
+        return output
+    return {"additionalContext": context}
+
+
+def process_native_hook(
+    start: Path,
+    provider: str,
+    native_payload: dict[str, Any],
+    native_event_override: str | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[str]]:
+    """Adapt one platform-native hook delivery into AAE's event/action rules."""
+    root = find_aae_root(start)
+    if root is None:
+        return None, None, []
+    if native_event_override and _native_event_name(native_payload) is None:
+        native_payload = {**native_payload, "hook_event_name": native_event_override}
+    event, payload, idempotency_key, normalization_errors = normalize_native_hook(
+        root, provider, native_payload
+    )
+    native_event = _native_event_name(native_payload) or "PostToolUse"
+    if event is None:
+        empty = {"status": "normalization-failed", "actions": []}
+        return empty, native_hook_output(
+            provider, native_event, empty, {}, normalization_errors
+        ), normalization_errors
+    record, procedures, errors = process_event(
+        root,
+        event=event,
+        payload=payload,
+        idempotency_key=idempotency_key,
+        record_no_match=False,
+    )
+    return record, native_hook_output(
+        provider, native_event, record, procedures, errors
+    ), errors
 
 
 def parse_payload_values(values: Iterable[str]) -> tuple[dict[str, Any], list[str]]:

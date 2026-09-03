@@ -55,7 +55,11 @@ AAE does not ask authors to declare cost models, lifecycle states, model/provide
 }
 ```
 
-Supported adapters are native `aae-json`, frontmatter-based `skill-md`, and file-backed `registry-json`. AAE does not scan arbitrary personal or enterprise locations unless configured.
+Supported adapters are native `aae-json`, frontmatter-based `skill-md`, and file-backed `registry-json`. The `skill-md` adapter accepts the common `SKILL.md` frontmatter form, including literal or folded multiline descriptions. AAE does not scan arbitrary personal or enterprise locations unless configured.
+
+Existing runtime-native skill directories can be registered rather than copied. For example, a `skill-md` source may point at `.github/skills`, `.agents/skills`, `.claude/skills`, or another runtime's installed skill root. When a platform already provides skill discovery, installation, updates, and provenance—such as GitHub CLI's `gh skill` commands—use that native mechanism and let AAE index the installed result. AAE does not add a competing skill marketplace.
+
+The current adapter indexes and digest-checks `SKILL.md` itself. Bundled scripts or reference files are not automatically executed by AAE; a future bundle contract should be added only if AAE needs to own that execution boundary.
 
 Discovery uses only advertisements. It scores requested capability matches and words shared by the task, description, and `when_to_use`, then returns a bounded shortlist. Full procedure text is loaded only for the selected skill after v1 safety checks pass.
 

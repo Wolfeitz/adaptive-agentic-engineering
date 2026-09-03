@@ -297,6 +297,89 @@ class AaeCliTests(unittest.TestCase):
             self.assertEqual(skill["capabilities"], ["compatibility-analysis", "api-analysis"])
             self.assertTrue(skill["adapted"])
 
+    def test_skill_md_adapter_accepts_multiline_description(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "runtime-skills" / "contract-check"
+            external.mkdir(parents=True)
+            (external / "SKILL.md").write_text(
+                "---\n"
+                "name: contract-check\n"
+                "description: >\n"
+                "  Find consumers before changing a shared contract.\n"
+                "  Report compatibility and verification risks.\n"
+                "---\n"
+                "# Full runtime instructions\n",
+                encoding="utf-8",
+            )
+            aae = root / ".aae"
+            aae.mkdir()
+            (aae / "skill-sources.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sources": [
+                            {
+                                "id": "runtime",
+                                "scope": "local",
+                                "adapter": "skill-md",
+                                "path": str(root / "runtime-skills"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry, errors, warnings = build_skill_registry(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(warnings, [])
+            self.assertEqual(
+                registry["skills"][0]["description"],
+                "Find consumers before changing a shared contract. Report compatibility and verification risks.",
+            )
+
+    def test_skill_md_adapter_ignores_provider_owned_nested_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "runtime-skills" / "contract-check"
+            external.mkdir(parents=True)
+            (external / "SKILL.md").write_text(
+                "---\n"
+                "name: contract-check\n"
+                "description: Check shared contracts\n"
+                "allowed-tools:\n"
+                "  - Read\n"
+                "  - Grep\n"
+                "metadata:\n"
+                "  runtime:\n"
+                "    - python\n"
+                "---\n"
+                "# Full runtime instructions\n",
+                encoding="utf-8",
+            )
+            aae = root / ".aae"
+            aae.mkdir()
+            (aae / "skill-sources.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sources": [
+                            {
+                                "id": "runtime",
+                                "scope": "local",
+                                "adapter": "skill-md",
+                                "path": str(root / "runtime-skills"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry, errors, warnings = build_skill_registry(root)
+            self.assertEqual(errors, [])
+            self.assertEqual(warnings, [])
+            self.assertEqual(registry["skill_count"], 1)
+
     def test_registry_json_adapter_resolves_procedure_from_index(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
