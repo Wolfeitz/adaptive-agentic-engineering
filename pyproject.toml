@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adaptive-agentic-engineering"
-version = "0.3.0"
+version = "0.3.1"
 description = "Portable intent bootstrap for Adaptive Agentic Engineering"
 requires-python = ">=3.10"
 dependencies = []
@@ -26,10 +26,6 @@ where = ["src"]
 "aae.templates" = [
   "AGENTS.md",
   ".gitignore",
-  ".codex/*",
-  ".codex/**/*",
-  ".github/*",
-  ".github/**/*",
   ".aae/*",
   ".aae/**/*",
 ]

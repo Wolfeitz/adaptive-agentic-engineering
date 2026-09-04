@@ -6,7 +6,9 @@
 - [x] Local overlay convention
 - [x] Deterministic source manifest
 - [x] Semantic compiler request
-- [x] Codex and Copilot entry adapters
+- [x] Portable native-adapter contract
+- [x] Codex and Copilot adapters extracted to independently versioned repositories
+- [x] Claude Code adapter added as an independently versioned repository
 - [x] HVE Core interoperability guidance
 - [x] Spec templates and task completion contract
 - [x] CI validation and tests

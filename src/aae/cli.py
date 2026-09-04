@@ -18,13 +18,7 @@ from .accounting import build_agent_skill_accounting
 from .control import invoke_skill, record_invocation_outcome
 from .criteria import combine_criteria
 from .integrations import submit_tracker_items
-from .hooks import (
-    HOOKS_PATH,
-    load_hook_config,
-    parse_payload_values,
-    process_event,
-    process_native_hook,
-)
+from .hooks import HOOKS_PATH, load_hook_config, parse_payload_values, process_event
 from .skills import (
     LOCAL_SKILL_SOURCES,
     SKILL_DIRECTORY,
@@ -51,7 +45,6 @@ from .semantic import (
 INTENT_DIRECTORY = Path(".aae/intent")
 RUNTIME_DIRECTORY = Path(".aae/runtime")
 STATE_DIRECTORY = Path(".aae/state")
-MAX_NATIVE_HOOK_PAYLOAD_BYTES = 1_048_576
 
 
 def sha256(path: Path) -> str:
@@ -733,37 +726,6 @@ def emit_event_repository(
     } else 1
 
 
-def native_hook_repository(
-    root: Path, provider: str, native_event: str | None = None
-) -> int:
-    """Read one native hook delivery from stdin and emit its native response."""
-    raw = sys.stdin.read(MAX_NATIVE_HOOK_PAYLOAD_BYTES + 1)
-    if len(raw.encode("utf-8")) > MAX_NATIVE_HOOK_PAYLOAD_BYTES:
-        print("ERROR: Native hook payload exceeds 1 MiB", file=sys.stderr)
-        return 1
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as parse_error:
-        print(
-            f"ERROR: Native hook payload is not valid JSON: {parse_error}",
-            file=sys.stderr,
-        )
-        return 1
-    if not isinstance(payload, dict):
-        print("ERROR: Native hook payload must be a JSON object", file=sys.stderr)
-        return 1
-    _, output, errors = process_native_hook(
-        root, provider, payload, native_event_override=native_event
-    )
-    if output is not None:
-        print(json.dumps(output, separators=(",", ":")))
-    for hook_error in errors:
-        print(f"ERROR: {hook_error}", file=sys.stderr)
-    # Native hosts receive actionable feedback through the JSON response. Avoid
-    # turning an adapter problem into an opaque process-level hook failure.
-    return 0
-
-
 def record_outcome(
     root: Path,
     identifier: str,
@@ -1135,17 +1097,6 @@ def parser() -> argparse.ArgumentParser:
     )
     event.add_argument("--json", action="store_true")
 
-    native_hook = commands.add_parser(
-        "native-hook",
-        help="Adapt a platform-native hook payload from stdin",
-    )
-    native_hook.add_argument("provider", choices=("codex", "copilot"))
-    native_hook.add_argument("path", nargs="?", default=".")
-    native_hook.add_argument(
-        "--event",
-        help="Native event name when the host payload does not include it",
-    )
-
     outcome = commands.add_parser("outcome")
     outcome.add_argument("identifier")
     outcome.add_argument(
@@ -1293,8 +1244,6 @@ def main(argv: Iterable[str] | None = None) -> int:
             arguments.json,
             arguments.for_invocation,
         )
-    if arguments.command == "native-hook":
-        return native_hook_repository(root, arguments.provider, arguments.event)
     if arguments.command == "outcome":
         return record_outcome(
             root,

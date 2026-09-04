@@ -2,7 +2,7 @@
 
 Adaptive Agentic Engineering (AAE) is a portable engineering method and control-plane bootstrap for AI-assisted software work.
 
-Teams describe a project in readable Markdown. AAE discovers that intent, combines shared sources with private local overlays, and prepares the minimum evidence and workflow needed by Codex, VS Code, HVE Core, CI, or another agent runtime.
+Teams describe a project in readable Markdown. AAE discovers that intent, combines shared sources with private local overlays, and prepares portable evidence and workflow contracts for native agent-runtime adapters.
 
 > AAE dynamically assembles the minimum evidence, context, workflow, specialization, human oversight, and verification appropriate to each engineering decision.
 
@@ -14,11 +14,11 @@ This repository is a runnable reference bootstrap, not a claim that every part o
 - ignored `.local.md` overlays;
 - deterministic source discovery, hashing, overlay ordering, validation, and watch mode;
 - requirements → design → task specification templates;
-- Codex and GitHub Copilot adapters;
+- a versioned native-adapter contract for Codex, Claude Code, GitHub Copilot, and future runtimes;
 - an HVE Core interoperability guide;
 - context-hygiene and observability guidance;
 - a multi-source skill registry with small advertisements, bounded matching, basic enforceable safety checks, and durable invocation records;
-- thin Codex and GitHub Copilot native-hook adapters backed by portable `on` / `paths` rules that request one skill or run one deterministic check;
+- portable `on` / `paths` event rules that native adapters can use to request one skill or run one deterministic check;
 - explicit semantic-versus-deterministic criterion authority with evidence-bound outcomes;
 - a provider-neutral semantic intermediate representation with conflict and clarification gates;
 - atomic semantic releases, rollback, incremental impact graphs, and provenance-bearing task/review packets;
@@ -39,7 +39,7 @@ aae compile
 aae validate
 ```
 
-Then open the project in Codex or VS Code and ask:
+Then install the adapter for the runtime you use and ask it to bootstrap AAE:
 
 > Read the AAE entry instructions, inspect the compiler request, ask any material questions, and bootstrap this project in the spirit of Adaptive Agentic Engineering.
 
@@ -79,7 +79,6 @@ aae discover TASK     Shortlist skills from capabilities, architecture, environm
 aae skill ID [PATH]   Inspect skill metadata (`--metadata-only` is required)
 aae invoke TASK       Match a skill, bind acceptance/control checks, and load it safely
 aae event EVENT       Apply simple event-to-skill or event-to-check hooks
-aae native-hook HOST  Adapt one Codex/Copilot native hook payload from stdin
 aae outcome ID RESULT Record evidence and derive any criterion-governed invocation result
 aae skill-stats       Summarize consideration, selection, outcome, and cost telemetry
 aae semantic ...      Validate, inspect, publish, or roll back a semantic release
@@ -94,7 +93,9 @@ aae accounting        Inventory skills, ephemeral roles, and deterministic autho
 
 Skills advertise what they are good for. AAE searches those advertisements, exposes the smallest useful shortlist, checks required tools plus destructive approval or fresh-context requirements, and only then loads the selected procedure. Roles remain ephemeral; reusable skills remain durable. See [docs/capability-skill-fabric.md](docs/capability-skill-fabric.md).
 
-Hooks provide literal “X happens, do Y” routing: Codex or Copilot supplies the native lifecycle event, and AAE can request one skill or run one configured deterministic check. `aae event` remains available for CI, webhooks, and runtimes without a native lifecycle. See [docs/hooks-and-events.md](docs/hooks-and-events.md).
+Hooks provide literal “X happens, do Y” routing: a runtime-specific adapter supplies the native lifecycle event, and AAE can request one skill or run one configured deterministic check. `aae event` remains available for CI, webhooks, and runtimes without a native lifecycle. See [docs/hooks-and-events.md](docs/hooks-and-events.md).
+
+AAE core does not emulate provider features. The Codex, Claude Code, and GitHub Copilot adapters own native instructions, skills, hooks, roles, tools, permissions, version probes, and upstream drift checks. See [docs/native-adapters.md](docs/native-adapters.md).
 
 Acceptance statements supplied with `aae invoke --acceptance` are evaluated by
 the semantic executor. Checks named with `--control-check` must be enabled
@@ -116,7 +117,7 @@ AAE can use HVE Core as a VS Code execution adapter. It does not make HVE Core t
 
 ## Project status
 
-Version 0.3 is a runnable reference control plane intended for experiments across Codex, VS Code/Copilot, and HVE Core. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
+Version 0.3 is the portable AAE core. Runtime-native integration is released independently by the adapter repositories. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
 
 ## License
 

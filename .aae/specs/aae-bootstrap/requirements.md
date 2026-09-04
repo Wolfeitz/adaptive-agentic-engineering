@@ -4,7 +4,7 @@
 - **REQ-002:** Discover any Markdown under the intent plane rather than relying on a filename whitelist.
 - **REQ-003:** Process matching `.local.md` sources after shared sources and keep local state out of Git.
 - **REQ-004:** Produce a deterministic manifest and bounded semantic compiler request without binding to one model provider.
-- **REQ-005:** Supply Codex, Copilot, HVE Core, specification, context-hygiene, routing, and observability guidance.
+- **REQ-005:** Supply a portable native-adapter contract plus specification, context-hygiene, routing, observability, and HVE Core interoperability guidance without embedding provider-owned configuration in core.
 - **REQ-006:** Validate core repository hygiene in local and CI execution.
 - **REQ-007:** Seed configurable testing preferences that default automated and regression testing on, avoid invented coverage thresholds, and trigger resource-lifecycle verification when risk warrants it.
 - **REQ-008:** Index native, enterprise, project, and local skill advertisements into a normalized registry without loading full procedures for discovery.

@@ -6,9 +6,9 @@ Hooks use one rule:
 X happens -> do Y
 ```
 
-A platform-native hook decides when to notify AAE. A skill defines how an agent performs reusable reasoning. A direct check handles deterministic work without involving an agent. AAE does not replace an IDE or agent runtime's hook lifecycle, trust UI, concurrency, or permission model.
+A platform-native hook decides when to notify AAE. A skill defines how an agent performs reusable reasoning. A direct check handles deterministic work without involving an agent. AAE core does not replace an IDE or agent runtime's hook lifecycle, trust UI, concurrency, or permission model.
 
-`aae init` installs thin, project-native adapters for Codex (`.codex/hooks.json`) and GitHub Copilot (`.github/hooks/aae.json`). Both send native `PostToolUse` file-edit events to `aae native-hook`; that command normalizes the event and applies the portable rules below. Existing native configuration is preserved rather than overwritten.
+Install the separate adapter for Codex, Claude Code, or GitHub Copilot. The adapter uses the runtime's native hook format, reduces its payload to non-sensitive portable facts, and applies the rules below through AAE core.
 
 ## Configuration
 
@@ -48,11 +48,11 @@ join the resulting event with `aae outcome --control-event EVENT_ID`.
 
 ## Native delivery
 
-The adapters read the runtime's JSON payload from standard input. AAE persists only a digest, stable native identifiers, the tool name, and repository-relative changed paths—not raw prompts, tool responses, or file contents. Native events that match no enabled AAE rule create no AAE event record.
+Adapters read the runtime's native payload. An adapter may send AAE a digest, stable native identifiers, the tool name, and repository-relative changed paths—not raw prompts, tool responses, or file contents. Native events that match no enabled AAE rule should create no AAE event record.
 
 Enable only the `.aae/hooks.json` rules the project actually wants. The native configuration then provides the trigger while AAE provides the portable action, skill selection, and evidence record. Review native hook definitions through the host's normal trust mechanism; for Codex, use `/hooks`.
 
-`aae native-hook` is an adapter command used by native configuration, not normally a command people invoke directly.
+Adapter hook commands are provider-owned implementation details, not commands people normally invoke directly.
 
 ## Manual, CI, and webhook delivery
 

@@ -16,8 +16,8 @@ HVE Core is an optional AAE execution adapter for VS Code and Copilot CLI.
 
 Run the same bounded feature in three modes:
 
-1. Codex with the portable AAE adapter
-2. VS Code/Copilot with AAE instructions only
-3. VS Code/Copilot with AAE plus pinned HVE Core/RPI
+1. Codex with `aae-codex`
+2. VS Code/Copilot with `aae-github-copilot`
+3. VS Code/Copilot with `aae-github-copilot` plus pinned HVE Core/RPI
 
 Compare decisions, requirement coverage, task completion, review findings, token/context usage, and durable artifacts rather than identical wording.
