@@ -1,3 +1,5 @@
+> **v0.29 supersession:** The former default of avoiding permanent agents and waiting for repeated manual demand is no longer governing AAE policy. Persistent *definitions* of useful specialists may be proactive; this does not require continuously running agents. Inventory and reconcile existing HVE/team/native capabilities first; prove native discovery, invocation and integration rather than relying only on package installation. See [v29 consolidation](v29-consolidation.md).
+
 # Capability and Skill Fabric
 
 AAE treats skills as reusable procedures and agents as temporary executors.

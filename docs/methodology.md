@@ -1,3 +1,5 @@
+> **v0.29 policy precedence:** Proactively research and establish useful persistent specialist definitions, skills, hooks, MCP integrations and deterministic checks when expected value warrants them. A demonstrated recurring failure is **not** required. Reconcile existing HVE, organization, user and project assets first, preserving managed implementations. Applying this policy never requires a numerical quota of agents. Full bootstrap cannot be unilaterally reduced to setup-only; evidence-backed acceptance is described in [the v29 contract](v29-consolidation.md).
+
 # Adaptive Agentic Engineering Methodology
 
 AAE is intent-grounded, evidence-driven, spec-decomposed, verification-backed, and tool-independent.

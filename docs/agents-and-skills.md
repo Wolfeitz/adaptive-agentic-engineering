@@ -1,3 +1,5 @@
+> **v0.29 supersession:** AAE permits proactive persistent specialist definitions and reusable skills based on anticipated engineering value. Existing HVE or team specialists are reused or supplemented before adding competing agents. Installed artifacts alone are not operational proof. See [v29 consolidation](v29-consolidation.md).
+
 # Agents and Skills
 
 AAE includes eight starter skills and zero permanent named agents.

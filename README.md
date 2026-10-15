@@ -1,3 +1,5 @@
+> **v0.29 consolidation in progress:** [Integration contract](docs/v29-consolidation.md) describes the evolving relationship between this executable core and the newer v28 bootstrap package. It supersedes restrictive older AAE assumptions on proactive capability development, but does not claim completed runtime integration. The published stable repository content below remains valid unless explicitly superseded.
+
 # Adaptive Agentic Engineering
 
 Adaptive Agentic Engineering (AAE) is a portable engineering method and control-plane bootstrap for AI-assisted software work.
