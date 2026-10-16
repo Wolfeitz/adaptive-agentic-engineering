@@ -46,3 +46,26 @@ def assess_decisions(record):
         # A justified not-applicable decision is complete without installation.
     return {"state": "PARTIAL" if errors or pending else "COMPLETE",
             "errors": errors, "pending": pending}
+
+
+def main(argv=None):
+    """Validate a JSON assessment record from a CLI without changing project state."""
+    import argparse
+    import json
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description="Validate AAE bootstrap decision record")
+    parser.add_argument("record", help="Path to UTF-8 JSON decision record")
+    args = parser.parse_args(argv)
+    try:
+        data = json.loads(Path(args.record).read_text(encoding="utf-8"))
+        result = assess_decisions(data)
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        print(json.dumps({"state": "ERROR", "error": str(exc)}))
+        return 2
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result["state"] == "COMPLETE" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

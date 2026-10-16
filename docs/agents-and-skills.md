@@ -1,12 +1,10 @@
-> **v0.29 supersession:** AAE permits proactive persistent specialist definitions and reusable skills based on anticipated engineering value. Existing HVE or team specialists are reused or supplemented before adding competing agents. Installed artifacts alone are not operational proof. See [v29 consolidation](v29-consolidation.md).
-
 # Agents and Skills
 
 AAE includes eight starter skills and zero permanent named agents.
 
 A skill is a durable procedure. An agent is a runtime executor. Selecting a skill normally gives its procedure to the current agent; it does not create a new specialist.
 
-AAE recognizes only three useful runtime distinctions:
+The existing starter includes three common runtime roles, not an exclusive list:
 
 | Role | Kind | Use |
 | --- | --- | --- |
@@ -22,4 +20,4 @@ An independent reviewer is gated on a succeeded target invocation and fresh
 context. AAE records the target identity but does not inject its semantic
 verdict into reviewer context.
 
-AAE does not automatically create agents or skills. A runtime may use a fresh specialist when independence or expertise genuinely warrants it. A repeated procedure becomes a new skill only when a person or an explicitly governed future workflow chooses to package it.
+AAE proactively assesses existing and external capabilities; new native specialist agents or skills may be created, reused or extended when justified. Assessment is required during a full bootstrap; installation is conditional and subject to project authority. Native discovery and real invocation require separate proof.
