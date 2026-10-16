@@ -43,7 +43,7 @@
 - [x] Independent challenge and review packets
 - [x] Versioned skill invocation and outcome telemetry
 - [ ] Consider semantic skill retrieval only if lexical matching proves insufficient
-- [ ] Consider skill-candidate suggestions only after repeated manual demand
+- [ ] Connect proactive capability research and reconciliation to the bootstrap runtime, with justified adoption decisions
 - [ ] Add lifecycle or graph machinery only when an observed governance problem requires it
 
 ## Phase 3 — Integrations
@@ -52,6 +52,15 @@
 - [x] GitHub Issues offline payload adapter
 - [x] Jira offline issue payload adapter
 - [x] Credentialed live tracker submission adapters
+
+## v0.29 consolidation acceptance
+
+- [x] Preserve the executable semantic, skill, event and evidence engines
+- [x] Add explicit bootstrap outcome and decision-ledger validators with regression cases
+- [ ] Wire the decision ledger to the runtime bootstrap entry path and generate the integration manifest
+- [ ] Reconcile and distribute v28's fifteen core procedures without duplicating HVE or existing team assets
+- [ ] Prove native IDE skill invocation and pre-edit denial in supported runtimes
+- [ ] Run representative personal, team and high-consequence end-to-end workflow tests
 
 ## Private experiment
 

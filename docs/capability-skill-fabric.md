@@ -1,6 +1,8 @@
+> **v0.29 supersession:** The former default of avoiding permanent agents and waiting for repeated manual demand is no longer governing AAE policy. Persistent *definitions* of useful specialists may be proactive; this does not require continuously running agents. Inventory and reconcile existing HVE/team/native capabilities first; prove native discovery, invocation and integration rather than relying only on package installation. See [v29 consolidation](v29-consolidation.md).
+
 # Capability and Skill Fabric
 
-AAE treats skills as reusable procedures and agents as temporary executors.
+AAE treats skills as reusable procedures and agents as runtime executors; agent definitions may persist when beneficial, without requiring permanently running processes.
 
 ```text
 Task
@@ -11,7 +13,7 @@ Task
   -> execute and verify
 ```
 
-The current agent normally runs the selected skill. A fresh reviewer or other specialist is created only when the task actually needs a separate role or context.
+The current agent normally runs the selected skill. A fresh reviewer may be selected for independence; persistent project specialists may also be discovered or developed proactively when worthwhile.
 
 ## Skill advertisement
 
@@ -104,4 +106,4 @@ Independent-review skills additionally require `--review-of INVOCATION_ID`.
 The target must have succeeded, but its verdict is not copied into reviewer
 context. This is gating, not a new policy system or an automatic agent launcher.
 
-AAE does not automatically create skills or agents from observed behavior. When people notice a repeated procedure, they can turn it into a skill. Automatic suggestions, semantic reranking, graphs, and lifecycle governance remain future enhancements that must be justified by real use.
+AAE evaluates proactive adoption and creation of agents and skills, including external sources, against applicability, trust, authority, and expected value. The existing registry does not itself automatically install or author capabilities; native integration and demonstrated invocation remain separate requirements.

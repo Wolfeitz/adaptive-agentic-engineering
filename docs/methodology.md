@@ -5,7 +5,7 @@ AAE is intent-grounded, evidence-driven, spec-decomposed, verification-backed, a
 ## Core lifecycle
 
 1. Acquire only evidence needed for the next decision.
-2. Research only demonstrated evidence gaps.
+2. Proactively research relevant engineering capabilities and current practices, proportionate to the project and permitted access.
 3. Capture requirements and challenge material ambiguity.
 4. Design within existing architecture, environment, standards, and constraints.
 5. Decompose meaningful work into traceable executable tasks.
@@ -16,15 +16,15 @@ AAE is intent-grounded, evidence-driven, spec-decomposed, verification-backed, a
 
 ## Adaptive topology
 
-AAE asks what evidence, independence, expertise, model capability, human oversight, and verification the next decision requires. It then activates the minimum useful topology. Specialists are ephemeral cognitive roles, not a permanent theatrical cast.
+AAE asks what evidence, independence, expertise, model capability, human oversight, and verification the next decision requires. It then activates the minimum useful topology. Specialists may be reusable native agent definitions or ephemeral workers, depending on project value and runtime support; no fixed roster is mandatory.
 
 ## Capability and skill fabric
 
-Workflows use reusable skills rather than permanent named agents. AAE indexes small advertisements, matches them against the task, and exposes only a bounded shortlist. Full procedures load only after the basic checks AAE can actually enforce: required tools, destructive approval, and fresh context for independence.
+Workflows reuse existing skills and agents where suitable, while permitting persistent specialist definitions when justified. AAE indexes small advertisements, matches them against the task, and exposes only a bounded shortlist. Full procedures load only after the basic checks AAE can actually enforce: required tools, destructive approval, and fresh context for independence.
 
 Invoking a skill does not require spawning an agent. The current agent, an ephemeral specialist, a deterministic executor, an independent reviewer, or a human may execute it according to consequence and independence needs. See [Capability and Skill Fabric](capability-skill-fabric.md).
 
-AAE promotes no target number of skills. When people repeatedly perform the same stable procedure and decide it is worth preserving, they can package it as a skill. AAE does not automatically create or promote skills in v1.
+AAE promotes no target number of skills. A skill may be proactively adopted or created when anticipated value justifies it; repeated failure is not a prerequisite. Existing HVE, organization and team capabilities must be reconciled first.
 
 ## Hooks and event rules
 

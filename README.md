@@ -1,5 +1,8 @@
 # Adaptive Agentic Engineering
 
+**Version 0.29 — consolidated executable foundation.** The semantic compiler, skill registry, task packets, event machinery and existing runtime adapter contracts are retained. New [bootstrap decision checks](docs/v29-decision-ledger.md) require an evidence-backed decision for each applicable concern, **not** installation of any particular agent, skill, hook or MCP tool. See [v29 scope and verification](docs/v29-consolidation.md) for gaps still requiring live runtime proof.
+
+
 Adaptive Agentic Engineering (AAE) is a portable engineering method and control-plane bootstrap for AI-assisted software work.
 
 Teams describe a project in readable Markdown. AAE discovers that intent, combines shared sources with private local overlays, and prepares portable evidence and workflow contracts for native agent-runtime adapters.
@@ -104,7 +107,7 @@ AAE combines those results with failure taking precedence over blocked, and
 blocked taking precedence over success. It does not accept arbitrary
 model-authored “control” verdicts.
 
-AAE intentionally seeds skills but no permanent theatrical agent cast. Run `aae accounting --json` or read [docs/agents-and-skills.md](docs/agents-and-skills.md) for the exact distinction.
+AAE supports both reusable persistent specialist definitions and temporary executors when they add value; it does not mandate an agent count. Run `aae accounting --json` or read [docs/agents-and-skills.md](docs/agents-and-skills.md) for the exact distinction.
 
 `aae tracker-submit` reads credentials only from the named environment
 variable, requires `--confirm-external-write`, and never places authorization
@@ -117,7 +120,7 @@ AAE can use HVE Core as a VS Code execution adapter. It does not make HVE Core t
 
 ## Project status
 
-Version 0.3 is the portable AAE core. Runtime-native integration is released independently by the adapter repositories. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
+Version 0.29 consolidates the portable AAE core and bootstrap decision checks. Runtime-native integration is released independently by the adapter repositories. See [ROADMAP.md](ROADMAP.md) and the repository's own `.aae/specs/` contracts.
 
 ## License
 
