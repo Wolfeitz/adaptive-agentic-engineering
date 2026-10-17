@@ -29,6 +29,8 @@ def assess(record):
             errors.append(f"{name}: missing or invalid disposition")
         elif status == "verified" and not item.get("evidence"):
             errors.append(f"{name}: verification lacks evidence")
+        elif status == "not_applicable" and name == "original_scope_reconciliation":
+            errors.append(f"{name}: scope reconciliation cannot be not applicable")
         elif status == "not_applicable" and not item.get("reason"):
             errors.append(f"{name}: not-applicable lacks a reason")
         elif status not in ("verified", "not_applicable"):

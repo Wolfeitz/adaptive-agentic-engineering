@@ -15,3 +15,20 @@ A full AAE bootstrap has an explicit **assessment obligation**, not an artifact 
 The executable `aae.bootstrap_decisions.assess_decisions(record)` validates an explicit ledger record, reporting missing decisions and outstanding verification. It is a **reporting validator**, not an automatic skill router, native IDE hook, or authority to mutate project files.
 
 This is deliberately one small module and tests, not another orchestration service.
+
+## Completion and scoped exclusions
+
+Every required outcome must be assessed; implementation of an individual checklist
+item remains conditional on that reasoned assessment. `not_applicable` can close a
+scoped exclusion, but cannot exempt `original_scope_reconciliation`: the full
+request and all exclusions must actually be reconciled before claiming completion.
+In the acceptance record, reconciliation needs `status: verified` and evidence.
+In the decision ledger, it needs a non-exempt decision (for example `retain`), a
+rationale, assessment evidence, and `verification: verified`. A blocked, deferred,
+or unverified reconciliation keeps the result partial.
+
+For example, an assessed project may need no new MCP integration: record the
+reasoned exclusion, then verify that this and other decisions still satisfy the
+original full-bootstrap request. Zero new artifacts can be valid; skipping the
+scope review or silently substituting a limited pilot cannot. These validators
+check recorded dispositions and evidence presence, not the truth of supplied prose.

@@ -30,3 +30,11 @@ Use `aae.bootstrap_acceptance.assess(record)` to distinguish incomplete bootstra
 3. Restore and preserve fail-closed *enforcement-mode* worktree checks while allowing honest read-only diagnostics.
 4. Run existing + new tests, Windows UTF-8 checks, and representative enterprise/homelab/multi-root scenarios.
 5. Perform actual fresh native adapter invocation and denied-edit verification before claiming enforcement.
+
+## Completion and scoped exclusions
+
+`original_scope_reconciliation` is mandatory and cannot be `not_applicable` in
+either validator. It must be evidenced and verified before reporting `COMPLETE`.
+Individual checklist implementations remain conditional on reasoned assessment;
+legitimate scoped exclusions do not require installing new artifacts. See the
+[decision ledger completion contract](v29-decision-ledger.md#completion-and-scoped-exclusions).
