@@ -37,13 +37,15 @@ def assess_decisions(record):
             errors.append(f"{key}: decision lacks rationale")
         if not item.get("evidence"):
             errors.append(f"{key}: no assessment evidence")
-        if decision in ("blocked", "defer"):
+        if decision == "not_applicable" and key == "original_scope_reconciliation":
+            errors.append(f"{key}: scope reconciliation cannot be not applicable")
+        elif decision in ("blocked", "defer"):
             if not item.get("next_action"):
                 errors.append(f"{key}: unresolved item lacks next action")
             pending.append(key)
         elif decision in READY and item.get("verification") != "verified":
             pending.append(key)
-        # A justified not-applicable decision is complete without installation.
+        # Other justified not-applicable decisions close assessed exclusions without installation.
     return {"state": "PARTIAL" if errors or pending else "COMPLETE",
             "errors": errors, "pending": pending}
 
