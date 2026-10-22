@@ -18,6 +18,8 @@ CAPABILITIES = frozenset({
 
 def assess_decisions(record):
     """Report assessment gaps separately from chosen actions and pending verification."""
+    if not isinstance(record, dict):
+        raise ValueError("Bootstrap decision record must be a JSON object")
     if record.get("requested_operation") != "project-bootstrap":
         return {"state": "NOT_FULL_BOOTSTRAP", "errors": [], "pending": []}
     outcomes = record.get("outcomes") if isinstance(record.get("outcomes"), dict) else {}

@@ -1,3 +1,4 @@
 """Adaptive Agentic Engineering reference bootstrap."""
 
-__version__ = "0.3.1"
+# Single source for runtime reporting and setuptools package metadata.
+__version__ = "0.29.0"
