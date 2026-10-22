@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from aae import __version__
 from aae.cli import init_repository
 from aae.semantic import (
     build_impact_graph,
@@ -152,6 +153,8 @@ class SemanticCompilerTests(unittest.TestCase):
             root = Path(directory)
             first_document, _ = self.make_project(root)
             first = publish_semantic_document(root, first_document)
+            provenance = json.loads((first.release_path / "provenance.json").read_text())
+            self.assertEqual(provenance["aae_version"], __version__)
             self.assertTrue(first.created)
             self.assertFalse(publish_semantic_document(root, first_document).created)
             packet = load_active_task_packet(root, "implement-change")

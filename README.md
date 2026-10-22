@@ -125,3 +125,9 @@ Version 0.29 consolidates the portable AAE core and bootstrap decision checks. R
 ## License
 
 No license has been selected yet. Choose one before publishing the repository for general reuse.
+
+## Package version
+
+`src/aae/__init__.py` defines the package version in `__version__`. Setuptools
+derives distribution metadata from that value; update it there for releases so
+`aae doctor` and semantic-release provenance report the same version.

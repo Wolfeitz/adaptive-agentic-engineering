@@ -1,9 +1,32 @@
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 from aae.bootstrap_decisions import assess_decisions
 from aae.bootstrap_acceptance import REQUIRED
 
 
 class DecisionLedgerTests(unittest.TestCase):
+    def test_cli_invalid_json_input_is_structured_error(self):
+        for payload in ("[]", "null", '"text"', "42", "true", "{broken"):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "record.json"
+                path.write_text(payload, encoding="utf-8")
+                result = subprocess.run(
+                    [sys.executable, "-m", "aae.bootstrap_decisions", str(path)],
+                    capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stderr, "")
+                response = json.loads(result.stdout)
+                self.assertEqual(response["state"], "ERROR")
+                self.assertTrue(response["error"])
+
+    def test_non_object_record_is_rejected_by_validator(self):
+        with self.assertRaisesRegex(ValueError, "must be a JSON object"):
+            assess_decisions([])
+
     def record(self):
         return {"requested_operation": "project-bootstrap",
                 "original_request": "Full bootstrap",
