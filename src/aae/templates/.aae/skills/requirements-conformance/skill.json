@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "requirements-conformance",
+  "description": "Reconcile original intent and authoritative requirements with plan, implementation and review evidence; detect omissions hidden by completed task lists.",
+  "capabilities": [
+    "requirements-traceability",
+    "architecture-conformance",
+    "pr-review-coverage"
+  ],
+  "when_to_use": [
+    "plan review",
+    "implementation verification",
+    "pull request review",
+    "completion claims"
+  ],
+  "requires_tools": [
+    "filesystem-read"
+  ],
+  "procedure": "SKILL.md"
+}
