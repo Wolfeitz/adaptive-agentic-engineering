@@ -103,7 +103,7 @@ class AaeCliTests(unittest.TestCase):
             registry, errors, warnings = build_skill_registry(root)
             self.assertEqual(errors, [])
             self.assertEqual(warnings, [])
-            self.assertEqual(registry["skill_count"], 8)
+            self.assertEqual(registry["skill_count"], 9)
             serialized = json.dumps(registry)
             self.assertNotIn("Stop when the next decision is supported", serialized)
             skill, instructions, error = load_skill_instructions(registry, "project:repo-recon")
@@ -459,7 +459,7 @@ class AaeCliTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(registry_repository(root), 0)
             index = json.loads((root / ".aae/runtime/skill-registry.json").read_text())
-            self.assertEqual(index["skill_count"], 8)
+            self.assertEqual(index["skill_count"], 9)
             self.assertRegex(index["registry_sha256"], r"^[0-9a-f]{64}$")
 
     def test_skill_events_track_versioned_selection_outcome_and_cost(self) -> None:
