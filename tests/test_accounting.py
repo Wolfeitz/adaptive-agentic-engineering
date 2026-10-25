@@ -19,7 +19,7 @@ class AccountingTests(unittest.TestCase):
             self.assertEqual(warnings, [])
             self.assertEqual(accounting["agent_model"]["persistent_named_agents"], 0)
             self.assertTrue(accounting["agent_model"]["runtime_agents_are_ephemeral"])
-            self.assertEqual(accounting["skill_fabric"]["skill_count"], 8)
+            self.assertEqual(accounting["skill_fabric"]["skill_count"], 9)
             self.assertGreater(accounting["skill_fabric"]["capability_count"], 30)
             self.assertEqual(accounting["runtime_evidence"]["invocation_count"], 0)
             self.assertEqual(
